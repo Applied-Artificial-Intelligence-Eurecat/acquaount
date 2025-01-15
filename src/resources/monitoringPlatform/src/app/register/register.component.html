@@ -1,0 +1,35 @@
+<div class="grid">
+  <div class="col-12 h-5rem"></div>
+  <div class="col-offset-3"></div>
+  <div class="card col-6 shadow-6">
+    <div class="grid">
+      <div class="col-12">
+        <p>Username <span style="color: red">*</span></p>
+        <input style="width: 100%" [ngClass]="{'ng-dirty': !isValid, 'ng-invalid': !isValid}" type="text" pInputText
+               [(ngModel)]="username" placeholder="Username"/>
+      </div>
+      <div class="md:col-6 col-12">
+        <p>Password <span style="color: red">*</span></p>
+        <p-password [toggleMask]="true" class="w-full" [(ngModel)]="password"
+                    [style]="{'width':'100%'}" [ngClass]="{'ng-dirty': !isValid, 'ng-invalid': !isValid}"
+                    [inputStyle]="{'width':'100%'}" placeholder="Password"></p-password>
+      </div>
+      <div class="md:col-6 col-12">
+        <p>Confirm password <span style="color: red">*</span></p>
+        <p-password [toggleMask]="true" class="w-full" [(ngModel)]="confirmPassword" [feedback]="false"
+                    [style]="{'width':'100%'}" [ngClass]="{'ng-dirty': !isValid, 'ng-invalid': !isValid}"
+                    [inputStyle]="{'width':'100%'}" placeholder="Password"></p-password>
+      </div>
+      <div *ngIf="registerError" class="col-12 bg-red-300 text-red-600">
+        Wrong credentials
+      </div>
+      <div class="col-12">
+        <p-button label="Register" [style]="{'width':'100%'}" class="w-full" (onClick)="submit()"></p-button>
+      </div>
+      <div class="col-12">
+        <p-button label="Login" [outlined]="true" [style]="{'width':'100%'}" class="w-full" (onClick)="goToLogin()"></p-button>
+      </div>
+    </div>
+  </div>
+  <div class="col-offset-3"></div>
+</div>

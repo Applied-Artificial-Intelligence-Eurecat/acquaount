@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  my_container:
+    build:
+      context: .
+      dockerfile: DockerfileHistoric
+    networks:
+      - acquaount-platform_default
+
+networks:
+  acquaount-platform_default:
+    external: true

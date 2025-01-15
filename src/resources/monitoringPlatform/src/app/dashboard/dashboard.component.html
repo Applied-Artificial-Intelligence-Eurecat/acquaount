@@ -1,0 +1,88 @@
+<div class="grid" style="width: 99%">
+  <div class="col-12 grid shadow-2 w-full bg-yellow-50">
+    <div class="col-12 xl:col-4 card flex justify-content-center align-items-center">
+      Pilot&nbsp;
+      <p-dropdown [options]="pilots" [(ngModel)]="selected_pilot" optionLabel="name" optionValue="name"
+                  [showClear]="false" placeholder="Select a Pilot" [style]="{'width':'12rem'}"
+                  (onChange)="updateDatastreamsDependingOnPilot()"></p-dropdown>
+    </div>
+    <div class="col-12 xl:col-4 card flex text-center justify-content-center align-items-center">
+      Start Date&nbsp;
+      <p-calendar [(ngModel)]="start_date" [showIcon]="true" [showButtonBar]="true" [showTime]="true"
+                  [showSeconds]="false"></p-calendar>
+    </div>
+    <div class="col-12 xl:col-4 card flex text-center justify-content-center align-items-center ">
+      End Date&nbsp;
+      <p-calendar [(ngModel)]="end_date" [showIcon]="true" [showButtonBar]="true" [showTime]="true"
+                  [showSeconds]="false"></p-calendar>
+    </div>
+  </div>
+  <div class="col-12"></div>
+  <div class="col-12 xl:col-4 bg-yellow-100 shadow-3 border-round-md">
+    <div class="grid">
+      <div class="col-12 xl:col-8 card flex justify-content-center">
+        <p-treeSelect containerStyleClass="w-full" [(ngModel)]="selectedNodes" [options]="nodes"
+                      display="chip" selectionMode="checkbox" placeholder="Select Datastreams"
+                      style="width: 100%; height: 100%" (onNodeSelect)="showNodes()"
+                      (onNodeUnselect)="showNodes()"></p-treeSelect>
+      </div>
+      <div class="col-6 xl:col-2 card flex justify-content-center">
+        <p-button label="Check" (onClick)="updateGraph()"></p-button>
+      </div>
+      <div class="col-6 xl:col-2 card flex justify-content-center">
+        <p-button label="Clear" (onClick)="clearNodes()"></p-button>
+      </div>
+      <div class="col-4 card flex justify-content-center">
+        Items
+      </div>
+      <div class="col-8 card flex justify-content-center">
+        <p-inputNumber [min]="1" [(ngModel)]="perPageItems" [showButtons]="true"></p-inputNumber>
+      </div>
+      <div class="col-4 card flex justify-content-center">
+        Page Number
+      </div>
+      <div class="col-8 card flex justify-content-center">
+        <p-inputNumber [min]="0" [(ngModel)]="pageNumber" [showButtons]="true"></p-inputNumber>
+      </div>
+      <div class="col-12 card flex justify-content-center align-items-center max-h-2rem">
+        <h4>List Of Selected Datastreams</h4>
+      </div>
+      <div class="col-12 card flex justify-content-left">
+        <ul>
+          <li *ngFor="let item of leafNodes">{{item.label}}</li>
+          <li *ngIf="extraNodes !== 0">... and {{extraNodes}} ignored datastreams</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div *ngIf="hasData" class="col-12 xl:col-8 ">
+    <p-chart type="line" [data]="data" [options]="options"></p-chart>
+  </div>
+  <div *ngIf="!hasData && selectedNodes.length == 0 || !hasData && !hasChecked" class="col-12 xl:col-8 ">
+    <p-card header="No Datastreams Selected">
+      <p class="m-0">
+        Please select a Pilot from the dropdown menu above, and a list of datastreams will become available in the
+        dropdown menu on the left. Select Datastreams from the list of Datastreams and click "Check" to generate a
+        chart.
+      </p>
+    </p-card>
+  </div>
+  <div *ngIf="!hasData && selectedNodes.length != 0 && hasChecked" class="col-12 xl:col-8 ">
+    <p-card header="No Data For Selected Datastreams">
+      <p class="m-0">
+        The datastreams you selected don't have data for the specified time range. Choose different datastreams or a
+        different time range.
+      </p>
+    </p-card>
+  </div>
+  <div class="col-12 grid shadow-2 w-full bg-yellow-50">
+    <div class="col-12 xl:col-4 card flex justify-content-center align-items-center">
+      Export current data in CSV format
+    </div>
+    <div class="col-12 xl:col-4 card flex text-center justify-content-center align-items-center">
+      <p-button label="Export" (onClick)="exportCSV()"></p-button>
+    </div>
+  </div>
+  <div class="xl:hidden col-12 w-full h-2rem"></div>
+  <div class="xl:hidden col-12 bg-yellow-50 shadow-2 w-full h-16rem"></div>
+</div>

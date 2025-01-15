@@ -1,0 +1,30 @@
+<div class="grid">
+  <div class="col-12 h-5rem"></div>
+  <div class="col-offset-3"></div>
+  <div class="col-6 shadow-6" style="background-color: #FFFFFF">
+    <div class="grid">
+      <div class="col-12">
+        <p>Username</p>
+        <input style="width: 100%" [ngClass]="{'ng-dirty': !isValid, 'ng-invalid': !isValid}" type="text" pInputText
+               [(ngModel)]="username" placeholder="Nom d'usuari"/>
+      </div>
+      <div class="col-12">
+        <p>Password</p>
+        <p-password [toggleMask]="true" class="w-full" [(ngModel)]="password" [feedback]="false"
+                    [style]="{'width':'100%'}" [ngClass]="{'ng-dirty': !isValid, 'ng-invalid': !isValid}"
+                    [inputStyle]="{'width':'100%'}" placeholder="Contrasenya"></p-password>
+      </div>
+      <div *ngIf="loginError" class="col-12 bg-red-300 text-red-600">
+        Wrong credentials
+      </div>
+      <div class="col-12">
+        <p-button label="Login" [style]="{'width':'100%'}" class="w-full" (onClick)="login()"></p-button>
+      </div>
+      <!--
+      <div class="col-12">
+        <p-button label="Register" [outlined]="true" [style]="{'width':'100%'}" class="w-full" (onClick)="goToRegister()"></p-button>
+      </div>-->
+    </div>
+  </div>
+  <div class="col-offset-3"></div>
+</div>

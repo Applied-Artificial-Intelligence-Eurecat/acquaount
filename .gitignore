@@ -1,0 +1,14 @@
+node_modules
+src/resources/db-data
+.idea
+/src/resources/dataIntegration/logs/
+
+/src/resources/modelService/dk/HEC-HMS-4.11-linux64/
+/src/resources/modelService/dk/requirements/
+/src/resources/modelService/model_api/data/
+/src/resources/modelService/old/
+/src/resources/modelService/dk/HMS_prototype_hydrology/HMS_prototype/data/
+/src/resources/modelService/dk/HMS_prototype_hydrology/HMS_prototype/results_old/
+/src/resources/db-backup.zip
+/src/resources/dataIntegration/dades/
+/src/resources/modelService/dk/HMS_Tirso_v2/

@@ -1,0 +1,32 @@
+version: "3.9"
+services:
+  acquaount-monitoring:
+    container_name: acqua
+    build:
+      context: ./
+      dockerfile: Dockerfile
+    ports:
+      - "8881:80"
+    networks:
+      - proxy-network
+
+  acquaount-login:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "9091:9091"
+    volumes:
+      - ./storage:/app/storage
+    environment:
+      - PYTHONUNBUFFERED=1
+    networks:
+     - proxy-network
+
+networks:
+ proxy-network:
+   external: true
+
+volumes:
+  storage:
+
