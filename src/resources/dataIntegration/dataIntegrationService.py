@@ -337,8 +337,6 @@ if __name__ in "__main__":
                                    enas.get_function(thing, ftplock=ftplock),
                                    send_timeseries_data,
                                    f"AcquaountENAS", is_ftp=True)
-            if thing == '1067':
-                thing_job()
             daily_jobs.append(thing_job)
 
         averages_job = create_job("CreateAverages",
