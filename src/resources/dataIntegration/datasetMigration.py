@@ -1,12 +1,24 @@
 import json
 
 import requests
-import tqdm
+from tqdm import tqdm
 
 baseurl = "http://172.20.49.81"
-uploadurl = baseurl + "/acquaounttirsoaquifer/actions/receiveMeasure"
+uploadurl = baseurl + "/acquaounttriassicacquifer/actions/receiveMeasure"
 
-thingsnames = ["Well_N8_Arborea", "Well_N10_Arborea", "Well_178_Santa_Giusta"]
+thingsnames = ["SONEDE - Well Drilling 1", "SONEDE - Well Drilling 2", "SONEDE - Well Drilling 3",
+               "SONEDE - Well Drilling 4", "SONEDE - Well Drilling 5", "SONEDE - Well Drilling 6", "DRW 1", "DRW 2",
+               "WWQ 1", "WWQ 2"]
+thingnames_links = ["acquaountsonedewelldrilling6",
+                    "acquaountsonedewelldrilling5",
+                    "acquaountsonedewelldrilling4",
+                    "acquaountsonedewelldrilling3",
+                    "acquaountsonedewelldrilling2",
+                    "acquaountsonedewelldrilling1",
+                    "acquaountdrw2",
+                    "acquaountdrw1",
+                    "acquaountwwq1",
+                    "acquaountwwq2"]
 
 if __name__ in "__main__":
     print("Hello world")
@@ -15,9 +27,10 @@ if __name__ in "__main__":
 
     things_list = r.text.replace("[", "").replace("]", "").replace("\"", "").split(",")
     for thing in things_list:
-        if "well_" in thing:
-            print(thing)
-            url = baseurl + "/" + thing.split("/")[-1] + "/properties/datastreamsList"
+        thingname = thing.split("/")[-1]
+        print(thingname)
+        if thingname in thingnames_links:
+            url = baseurl + "/" + thingname + "/properties/datastreamsList"
 
             r = requests.get(url)
 
@@ -29,9 +42,8 @@ if __name__ in "__main__":
                 for n in thingsnames:
                     dname = dname.replace(n, "Tirso_Aquifer")
 
-                for i in tqdm.tqdm(range(20)):
-                    data_r = requests.get(baseurl + "/" + thing.split("/")[
-                        -1] + f"/properties/datastreamMeasures?name={datastream['name']}&items=200&page={i}")
+                for i in tqdm(range(20)):
+                    data_r = requests.get(baseurl + "/" + thingname + f"/properties/datastreamMeasures?name={datastream['name']}&items=200&page={i}")
 
                     datastream_data = json.loads(data_r.text)
                     for measure in datastream_data:
@@ -52,4 +64,3 @@ if __name__ in "__main__":
                         response = requests.request("POST", uploadurl, headers=headers, data=payload)
                         if response.status_code != 200:
                             print(response.status_code)
-                            break

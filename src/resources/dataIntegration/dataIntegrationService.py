@@ -54,7 +54,7 @@ def send_timeseries_data(data, thing_name):
         resp = json.loads(res.text)
         if res.status_code != 200 or not resp["result"]:
             print(res.status_code, res.text)
-            log(f"{thing_name}|\tUpload failed!")
+            log(f"{thing_name}|\tUpload failed! {packet}")
             raise Exception(res.text)
     log(f"{thing_name}|\tUpload completed!")
 
@@ -296,7 +296,7 @@ if __name__ in "__main__":
                 daily_jobs.append(station_job)
 
         vanwalt_things = [
-            "Well_178_Santa_Giusta",
+            "Well_178_Santa_Giusta_NEW_000090",
             "Well_N10_Arborea",
             "Well_N8_Arborea"
         ]
@@ -337,6 +337,8 @@ if __name__ in "__main__":
                                    enas.get_function(thing, ftplock=ftplock),
                                    send_timeseries_data,
                                    f"AcquaountENAS", is_ftp=True)
+            if thing == '1067':
+                thing_job()
             daily_jobs.append(thing_job)
 
         averages_job = create_job("CreateAverages",

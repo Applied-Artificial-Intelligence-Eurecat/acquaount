@@ -715,6 +715,237 @@
           }
         }
       }
+    },
+    "modelOutputs": {
+      "description": "Model outputs of the Irrigation Model of the thing",
+      "readOnly": true,
+      "writeOnly": false,
+      "observable": false,
+      "forms": [
+        {
+          "href": "/properties/modelOutputs",
+          "contentType": "application/json",
+          "op": "readproperty",
+          "htv:methodName": "GET"
+        }
+      ],
+      "type": "object",
+      "properties": {
+        "earlyIrrigationDate": {
+          "type": "string",
+          "readOnly": true,
+          "writeOnly": false,
+          "description": "The date of proposed early irrigation"
+        },
+        "lateIrrigationDate": {
+          "type": "string",
+          "readOnly": true,
+          "writeOnly": false,
+          "description": "The date of proposed late irrigation"
+        },
+        "limitIrrigationDate": {
+          "type": "string",
+          "readOnly": true,
+          "writeOnly": false,
+          "description": "The date of proposed limit irrigation"
+        },
+        "irrigationVolumePrediction": {
+          "type": "array",
+          "readOnly": true,
+          "writeOnly": false,
+          "description": "The irrigation volume prediction data for the following 10 days",
+          "items": {
+            "readOnly": true,
+            "writeOnly": false,
+            "type": "object",
+            "properties": {
+              "deviceID": {
+                "type": "string",
+                "readOnly": true,
+                "writeOnly": false,
+                "description": "The ID of the sensor that took this measure"
+              },
+              "property_name": {
+                "type": "string",
+                "readOnly": true,
+                "writeOnly": false,
+                "description": "The name of the property observed in this measure"
+              },
+              "datastream_name": {
+                "type": "string",
+                "readOnly": true,
+                "writeOnly": false,
+                "description": "The name of the datastream containing this measure"
+              },
+              "unit_of_measurement": {
+                "type": "string",
+                "readOnly": true,
+                "writeOnly": false,
+                "description": "The unit of measurement of the observation"
+              },
+              "value": {
+                "type": "string",
+                "readOnly": true,
+                "writeOnly": false,
+                "description": "The value of the observation"
+              },
+              "time_of_measure": {
+                "type": "string",
+                "readOnly": true,
+                "writeOnly": false,
+                "description": "The time when the observation was taken"
+              }
+            }
+          }
+        },
+        "irrigationDeficitPrediction": {
+          "type": "array",
+          "readOnly": true,
+          "writeOnly": false,
+          "description": "The irrigation deficit prediction data for the following 10 days",
+          "items": {
+            "readOnly": true,
+            "writeOnly": false,
+            "type": "object",
+            "properties": {
+              "deviceID": {
+                "type": "string",
+                "readOnly": true,
+                "writeOnly": false,
+                "description": "The ID of the sensor that took this measure"
+              },
+              "property_name": {
+                "type": "string",
+                "readOnly": true,
+                "writeOnly": false,
+                "description": "The name of the property observed in this measure"
+              },
+              "datastream_name": {
+                "type": "string",
+                "readOnly": true,
+                "writeOnly": false,
+                "description": "The name of the datastream containing this measure"
+              },
+              "unit_of_measurement": {
+                "type": "string",
+                "readOnly": true,
+                "writeOnly": false,
+                "description": "The unit of measurement of the observation"
+              },
+              "value": {
+                "type": "string",
+                "readOnly": true,
+                "writeOnly": false,
+                "description": "The value of the observation"
+              },
+              "time_of_measure": {
+                "type": "string",
+                "readOnly": true,
+                "writeOnly": false,
+                "description": "The time when the observation was taken"
+              }
+            }
+          }
+        },
+        "soilMoisturePrediction": {
+          "type": "array",
+          "readOnly": true,
+          "writeOnly": false,
+          "description": "The soil moisture prediction data for the following 10 days",
+          "items": {
+            "readOnly": true,
+            "writeOnly": false,
+            "type": "object",
+            "properties": {
+              "deviceID": {
+                "type": "string",
+                "readOnly": true,
+                "writeOnly": false,
+                "description": "The ID of the sensor that took this measure"
+              },
+              "property_name": {
+                "type": "string",
+                "readOnly": true,
+                "writeOnly": false,
+                "description": "The name of the property observed in this measure"
+              },
+              "datastream_name": {
+                "type": "string",
+                "readOnly": true,
+                "writeOnly": false,
+                "description": "The name of the datastream containing this measure"
+              },
+              "unit_of_measurement": {
+                "type": "string",
+                "readOnly": true,
+                "writeOnly": false,
+                "description": "The unit of measurement of the observation"
+              },
+              "value": {
+                "type": "string",
+                "readOnly": true,
+                "writeOnly": false,
+                "description": "The value of the observation"
+              },
+              "time_of_measure": {
+                "type": "string",
+                "readOnly": true,
+                "writeOnly": false,
+                "description": "The time when the observation was taken"
+              }
+            }
+          }
+        },
+        "dailyIrrigationGivenPrediction": {
+          "type": "array",
+          "readOnly": true,
+          "writeOnly": false,
+          "description": "The daily irrigation given prediction data for the following 10 days",
+          "items": {
+            "readOnly": true,
+            "writeOnly": false,
+            "type": "object",
+            "properties": {
+              "deviceID": {
+                "type": "string",
+                "readOnly": true,
+                "writeOnly": false,
+                "description": "The ID of the sensor that took this measure"
+              },
+              "property_name": {
+                "type": "string",
+                "readOnly": true,
+                "writeOnly": false,
+                "description": "The name of the property observed in this measure"
+              },
+              "datastream_name": {
+                "type": "string",
+                "readOnly": true,
+                "writeOnly": false,
+                "description": "The name of the datastream containing this measure"
+              },
+              "unit_of_measurement": {
+                "type": "string",
+                "readOnly": true,
+                "writeOnly": false,
+                "description": "The unit of measurement of the observation"
+              },
+              "value": {
+                "type": "string",
+                "readOnly": true,
+                "writeOnly": false,
+                "description": "The value of the observation"
+              },
+              "time_of_measure": {
+                "type": "string",
+                "readOnly": true,
+                "writeOnly": false,
+                "description": "The time when the observation was taken"
+              }
+            }
+          }
+        }
+      }
     }
   },
   "actions": {
@@ -797,6 +1028,32 @@
       "forms": [
         {
           "href": "/actions/sendCommand",
+          "contentType": "application/json",
+          "op": "invokeaction",
+          "htv:methodName": "POST"
+        }
+      ]
+    },
+    "createSensor": {
+      "safe": true,
+      "idempotent": false,
+      "input": {
+        "type": "object",
+        "description": "Everything necessary for the action",
+        "readOnly": true,
+        "writeOnly": false,
+        "properties": {}
+      },
+      "output": {
+        "description": "Returns true/false if action was sent correctly, and a message",
+        "type": "object",
+        "properties": {},
+        "readOnly": true,
+        "writeOnly": false
+      },
+      "forms": [
+        {
+          "href": "/actions/createSensor",
           "contentType": "application/json",
           "op": "invokeaction",
           "htv:methodName": "POST"

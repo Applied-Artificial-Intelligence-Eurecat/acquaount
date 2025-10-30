@@ -19,6 +19,8 @@ servient.addServer(new HttpServer({
 const fs = require('fs');
 const csv = require('csv-parser');
 const {formatNumber} = require("chart.js/helpers");
+const path = require('path');
+const XLSX = require('xlsx');
 
 function readJsonFileSync(filePath) {
     try {
@@ -100,21 +102,6 @@ function writeToCSV(key, value) {
 }
 
 
-/*
-// Example endpoint handler
-app.post('/some-endpoint', async (req, res) => {
-    const csvData = `${req.body.someField},${req.body.otherField}\n`;
-
-    try {
-        await writeToCSV(csvData);
-        res.status(200).send('Data written to CSV successfully');
-    } catch (error) {
-        res.status(500).send('Error writing to CSV');
-    }
-});
- */
-
-
 function formatDate(date) {
     const year = date.getUTCFullYear();
     const month = (date.getUTCMonth() + 1).toString().padStart(2, '0');
@@ -150,6 +137,45 @@ function fetchFromDatabase(database_url) {
     });
 }
 
+async function fetchAllPagesFromDatabase(database_url) {
+    return fetch(formatUrl(database_url)).then(async function (response) {
+        if (response.ok) {
+            let body= await response.json();
+            if("value" in body && "@iot.nextLink" in body && body["@iot.nextLink"] !== null)
+            {
+                let nextLink = body["@iot.nextLink"];
+                while(nextLink !== null)
+                {
+                    
+                    nextLink = nextLink.replace("http://localhost:8008/FROST-Server/v1.1", baseurl);
+                    let nextBody = await fetch(nextLink).then(function (response) {
+                        if (response.ok) {
+                            return response.json();
+                        }
+                        return {}
+                    });
+                    body["value"].push(...nextBody["value"]);
+                    if("@iot.nextLink" in nextBody)
+                    {
+                        nextLink = nextBody["@iot.nextLink"];
+                    }else
+                    {
+                        nextLink = null;
+                    }                    
+                    
+                }
+            }
+            return body;
+                        
+        }
+        throw new Error('Request failed');
+    }).then(function (data) {
+        return data;
+    }).catch(function (error) {
+        console.log(error);
+    });
+}
+
 function postToDatabase(database_url, data) {
     let requestBody = JSON.stringify(data);
     const options = {
@@ -162,42 +188,32 @@ function postToDatabase(database_url, data) {
     return fetch(formatUrl(database_url), options).then(function (response) {
         if (response.ok) {
             return true;
+        }else
+        {
+        // Print the error code and message from the response
+        response.text().then(text => {
+            try {
+                const errorJson = JSON.parse(text);
+                console.log("Failed to post to database ", database_url, " data: ", data);
+                if (errorJson && errorJson.error) {
+                    console.log("Error code:", errorJson.error.code);
+                    console.log("Error message:", errorJson.error.message);
+                } else {
+                    console.log("Error response:", errorJson);
+                }
+            } catch (e) {
+                console.log("Error response (not JSON):", text);
+            }
+            throw new Error('Request failed');
+        });
         }
-        throw new Error('Request failed');
+        
+        
     }).then(function (data) {
         return data;
     }).catch(function (error) {
         console.log(error);
     });
-}
-
-function getSixMonthsBefore(dateString) {
-    // Parse the input date string into a Date object
-    const date = new Date(dateString);
-
-    // Check if the date is valid
-    if (isNaN(date.getTime())) {
-        throw new Error("Invalid date format");
-    }
-
-    // Subtract 6 months from the date
-    const newDate = new Date(date);
-    newDate.setMonth(newDate.getMonth() - 6);
-
-    // Adjust the day if necessary (e.g., if the resulting month has fewer days)
-    if (newDate.getDate() !== date.getDate()) {
-        newDate.setDate(0); // This sets the date to the last day of the previous month
-    }
-
-    // Format the new date back to the original format
-    const year = newDate.getUTCFullYear();
-    const month = String(newDate.getUTCMonth() + 1).padStart(2, '0');
-    const day = String(newDate.getUTCDate()).padStart(2, '0');
-    const hours = String(newDate.getUTCHours()).padStart(2, '0');
-    const minutes = String(newDate.getUTCMinutes()).padStart(2, '0');
-    const seconds = String(newDate.getUTCSeconds()).padStart(2, '0');
-
-    return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}Z`;
 }
 
 function getOneMonthBefore(dateString) {
@@ -269,7 +285,8 @@ function getSixMonthsBefore(dateString) {
 
     // Subtract 6 months from the date
     const newDate = new Date(date);
-    newDate.setMonth(newDate.getMonth() - 1);
+    // -1 to go from 1-index to 0-index, -6 to go 6 months before
+    newDate.setMonth((newDate.getMonth() - 1 - 6) % 12);
 
     // Adjust the day if necessary (e.g., if the resulting month has fewer days)
     if (newDate.getDate() !== date.getDate()) {
@@ -287,6 +304,24 @@ function getSixMonthsBefore(dateString) {
     return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}Z`;
 }
 
+async function setThingLocation(thingId, latitude, longitude){
+    location_body = {
+        "name": "Default",
+        "description": "This is the default location",
+        "properties": {},
+        "encodingType": "application/geo+json",
+        "location": {
+          "type": "Point",
+          "coordinates": [latitude, longitude]
+        },
+        "Things": [
+          { "@iot.id": thingId}
+        ]
+      }
+    postToDatabase(baseurl + "/Locations", location_body).then((data) => {
+        return data;
+    });
+}
 
 async function fetchFieldInformation(fieldName) {
     var locationsUrl;
@@ -305,6 +340,534 @@ async function fetchFieldInformation(fieldName) {
         return location["location"];
     })
     return result;
+}
+
+async function fetchBasinInformation(itemName) {
+    try {
+        // Get date range (last 12 months only)
+        let oneYearAgo = new Date();
+        oneYearAgo.setHours(0, 0, 0, 0);
+        oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+
+        let now = new Date();
+        now.setUTCDate(1);
+        now.setUTCHours(0, 0, 0, 0);
+
+        // Create the correct datastream name format (remove spaces for platform compatibility)
+        const datastreamPrefix = itemName.replaceAll(" ", "");
+
+        // Fetch basin measurements using platform's 9 datastreams
+        // Inflow data
+        let minInflow_observations = await fetchAllObservationsInDatastreamInRange(itemName, datastreamPrefix + "_MonthlyMinInflow",  formatDate(now),"", 1000, 0);
+        let maxInflow_observations = await fetchAllObservationsInDatastreamInRange(itemName, datastreamPrefix + "_MonthlyMaxInflow", formatDate(now),"", 1000, 0);
+        let meanInflow_observations = await fetchAllObservationsInDatastreamInRange(itemName, datastreamPrefix + "_MonthlyMeanInflow", formatDate(now),"", 1000, 0);
+
+        // Outflow/Demand data
+        let minOutflow_observations = await fetchAllObservationsInDatastreamInRange(itemName, datastreamPrefix + "_MonthlyMinIrrigationDemand",  formatDate(now),"", 1000, 0);
+        let maxOutflow_observations = await fetchAllObservationsInDatastreamInRange(itemName, datastreamPrefix + "_MonthlyMaxIrrigationDemand",  formatDate(now),"", 1000, 0);
+        let meanOutflow_observations = await fetchAllObservationsInDatastreamInRange(itemName, datastreamPrefix + "_MonthlyMeanIrrigationDemand", formatDate(now),"", 1000, 0);
+
+        // Storage/Volume data
+        let minStorage_observations = await fetchAllObservationsInDatastreamInRange(itemName, datastreamPrefix + "_MonthlyMinProjectedVolume", formatDate(now),"", 1000, 0);
+        let maxStorage_observations = await fetchAllObservationsInDatastreamInRange(itemName, datastreamPrefix + "_MonthlyMaxProjectedVolume",  formatDate(now),"", 1000, 0);
+        let meanStorage_observations = await fetchAllObservationsInDatastreamInRange(itemName, datastreamPrefix + "_MonthlyMeanProjectedVolume", formatDate(now),"", 1000, 0);
+
+        if(minInflow_observations === undefined || maxInflow_observations === undefined || meanInflow_observations === undefined || minOutflow_observations === undefined || maxOutflow_observations === undefined || meanOutflow_observations === undefined || minStorage_observations === undefined || maxStorage_observations === undefined || meanStorage_observations === undefined) {
+            return {
+                "result": false,
+                "data": [],
+                "error": "No observations found"
+            };
+        }
+        // Process data by month
+        let basin_data = [];
+        
+        function getMonthKey(timestamp) {
+            const date = new Date(timestamp);
+            return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-02T08:02:26.380Z`;
+        }
+
+        // Proper aggregation logic using Map to avoid duplication
+        const aggregatedData = new Map();
+
+        function addToAggregatedData(observations, measure_type, unit, value_type, valueKey) {
+            if (!Array.isArray(observations) || observations.length === 0) {
+                return;
+            }
+            
+            observations.forEach(obs => {
+                const monthKey = getMonthKey(obs.time_of_measure);
+                const key = `${monthKey}_${measure_type}`;
+                
+                if (!aggregatedData.has(key)) {
+                    aggregatedData.set(key, {
+                        "datetime": monthKey,
+                        "measure": measure_type,
+                        "unit": unit,
+                        "value_type": value_type,
+                        "min": "",
+                        "max": "",
+                        "mean": ""
+                    });
+                }
+                
+                const record = aggregatedData.get(key);
+                record[valueKey] = obs.value.toString();
+            });
+        }
+
+        // Add min, max, and mean values to aggregated data
+        addToAggregatedData(minInflow_observations, "inflow", "M3/S", "forecast", "min");
+        addToAggregatedData(maxInflow_observations, "inflow", "M3/S", "forecast", "max");
+        addToAggregatedData(meanInflow_observations, "inflow", "M3/S", "forecast", "mean");
+        
+        addToAggregatedData(minOutflow_observations, "outflow", "M3/S", "forecast", "min");
+        addToAggregatedData(maxOutflow_observations, "outflow", "M3/S", "forecast", "max");
+        addToAggregatedData(meanOutflow_observations, "outflow", "M3/S", "forecast", "mean");
+        
+        addToAggregatedData(minStorage_observations, "storage", "1000 M3", "forecast", "min");
+        addToAggregatedData(maxStorage_observations, "storage", "1000 M3", "forecast", "max");
+        addToAggregatedData(meanStorage_observations, "storage", "1000 M3", "forecast", "mean");
+
+        // Convert Map values to array
+        basin_data = Array.from(aggregatedData.values());
+        
+        // Reorganize data: group by measurement type, then by datetime
+        const organizedData = [];
+        const measurementTypes = ["inflow", "outflow", "storage"];
+        
+        measurementTypes.forEach(measureType => {
+            // Get all data for this measurement type
+            const measureData = basin_data.filter(item => item.measure === measureType);
+            
+            // Sort by datetime (oldest to newest)
+            measureData.sort((a, b) => new Date(a.datetime) - new Date(b.datetime));
+            
+            // Add to organized data
+            organizedData.push(...measureData);
+        });
+        
+        return {
+            "data": organizedData
+        };
+    } catch (error) {
+        console.log(`[ERROR] Error fetching basin data for ${itemName}:`, error.message);
+        return {
+            "data": [],
+            "error": "No basin data available for this item"
+        };
+    }
+}
+
+async function fetchFieldIrrigationDates(fieldName) {
+    var result = await fetchFromDatabase(baseurl + "/Things?$filter=name eq '" + fieldName + "'").then((data) => {
+        var field = data["value"][0];
+        return {
+            "earlyIrrigationDate": field["properties"]["earlyIrrigationDate"],
+            "lateIrrigationDate": field["properties"]["lateIrrigationDate"],
+            "limitIrrigationDate": field["properties"]["limitIrrigationDate"],
+        }
+    });
+    return result;
+}
+
+async function fetchHistoricalData(itemName) {
+
+    try {
+        // Determine the type based on itemName
+        let itemType = 'volume';
+        if (itemName.toLowerCase().includes('inflow')) {
+            itemType = 'inflow';
+        } else if (itemName.toLowerCase().includes('outflow')) {
+            itemType = 'outflow';
+        } else if (itemName.toLowerCase().includes('volume')) {
+            itemType = 'volume';
+        }
+        
+        // Define the Excel files and their configurations
+        const excelFiles = [
+            {
+                path: 'src/resources/historicalData/historic_measures_volume.xlsx',
+                type: 'volume',
+                sheets: ['max_min_average'] // Only process max_min_average sheet for volume
+            },
+            {
+                path: 'src/resources/historicalData/historic_measures_outflow.xlsx',
+                type: 'outflow',
+                sheets: ['max_min_average_mcs'] // Only process max_min_average_mcs sheet for outflow
+            },
+            {
+                path: 'src/resources/historicalData/historic_measures_inflow.xlsx',
+                type: 'inflow',
+                sheets: ['max_min_average_mcs'] // Only process max_min_average_mcs sheet for inflow
+            }
+        ];
+
+        // get statistics for volume, inflow, and outflow
+        const relevantFiles = excelFiles;
+
+        // Use Map to group data by month and measure type
+        const monthlyData = new Map();
+
+        // Process each relevant Excel file
+        for (const fileConfig of relevantFiles) {
+            try {
+                if (!fs.existsSync(fileConfig.path)) {
+                    continue;
+                }
+
+                const workbook = XLSX.readFile(fileConfig.path);
+                
+                // Process the single configured sheet for this file
+                const sheetName = fileConfig.sheets[0]; // Only one sheet per file now
+                if (!workbook.SheetNames.includes(sheetName)) {
+                    continue;
+                }
+                
+                const sheet = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+                
+                // Check if this sheet has the expected month column format (either 'month-year' or 'Month')
+                const firstRow = sheet[0];
+                const monthColumnName = firstRow && (firstRow['month-year'] || firstRow['Month']) ? 
+                    (firstRow['month-year'] ? 'month-year' : 'Month') : null;
+                
+                if (!firstRow || !monthColumnName) {
+                    continue;
+                }
+                    
+                    // Process each row in the sheet
+                    sheet.forEach((row, index) => {
+                        // Skip header rows (rows without month data)
+                        if (!row || !row[monthColumnName]) {
+                            return;
+                        }
+                        
+                        // Extract month-year from the month column
+                        const monthYear = row[monthColumnName];
+                        if (!monthYear) return;
+
+                        
+                        // Determine unit based on file type and sheet name
+                        let determinedUnit = ''; 
+
+                        // Try different possible column name patterns based on Excel structure
+                        let maxValue, minValue, avgValue;
+
+                        const typeCapitalized = fileConfig.type.charAt(0).toUpperCase() + fileConfig.type.slice(1);
+
+                        // Define all possible patterns
+                        const patterns = [
+                            // Volume patterns
+                            { type: typeCapitalized, unit: 'Mmc', format: `[Mmc]` },
+                            { type: typeCapitalized, unit: 'Mmc', format: `(Mmc)` },
+                            // Outflow patterns (m3/s)
+                            { type: typeCapitalized, unit: 'm3/s', format: `[m3/s]` },
+                            // Inflow patterns (mc/s)
+                            { type: typeCapitalized, unit: 'mc/s', format: `[mc/s]` }
+                        ];
+
+                        // Iterate through patterns to find a match
+                        for (const pattern of patterns) {
+                            const maxCandidateKey = `Max of ${pattern.type} ${pattern.format}`;
+                            const minCandidateKey = `Min of ${pattern.type} ${pattern.format}`;
+                            const avgCandidateKey = `Average of ${pattern.type} ${pattern.format}`;
+
+                            if (row[maxCandidateKey] !== undefined && row[minCandidateKey] !== undefined && row[avgCandidateKey] !== undefined) {
+                                maxValue = row[maxCandidateKey];
+                                minValue = row[minCandidateKey];
+                                avgValue = row[avgCandidateKey];
+                                determinedUnit = pattern.unit;
+                                break; // Found a match, exit loop
+                            }
+                        }
+
+                        // If no values found with specific patterns, try fallback for volume data
+                        if (!maxValue && !minValue && !avgValue) {
+                            const allKeys = Object.keys(row);
+                            const matchingKeys = allKeys.filter(key => key.toLowerCase().includes(fileConfig.type.toLowerCase()));
+                            
+                            // Try to find max/min/avg in these columns
+                            matchingKeys.forEach(key => {
+                                if (key.toLowerCase().includes('max') && !maxValue) {
+                                    maxValue = row[key];
+                                    // Attempt to extract unit from the matched key
+                                    const unitMatch = key.match(/\[(.*?)\]|\((.*?)\)/);
+                                    if (unitMatch && (unitMatch[1] || unitMatch[2])) {
+                                        determinedUnit = unitMatch[1] || unitMatch[2];
+                                    }
+                                }
+                                if (key.toLowerCase().includes('min') && !minValue) {
+                                    minValue = row[key];
+                                    const unitMatch = key.match(/\[(.*?)\]|\((.*?)\)/);
+                                    if (unitMatch && (unitMatch[1] || unitMatch[2]) && !determinedUnit) {
+                                        determinedUnit = unitMatch[1] || unitMatch[2];
+                                    }
+                                }
+                                if ((key.toLowerCase().includes('average') || key.toLowerCase().includes('avg')) && !avgValue) {
+                                    avgValue = row[key];
+                                    const unitMatch = key.match(/\[(.*?)\]|\((.*?)\)/);
+                                    if (unitMatch && (unitMatch[1] || unitMatch[2]) && !determinedUnit) {
+                                        determinedUnit = unitMatch[1] || unitMatch[2];
+                                    }
+                                }
+                            });
+                        }
+
+                        // If unit is still not determined, use a default based on file type
+                        if (!determinedUnit) {
+                            if (fileConfig.type === 'volume') {
+                                determinedUnit = 'Mmc';
+                            } else if (fileConfig.type === 'outflow') {
+                                determinedUnit = 'm3/s';
+                            } else if (fileConfig.type === 'inflow') {
+                                determinedUnit = 'mc/s';
+                            }
+                        }
+
+                        // Convert month-year to datetime (handling Excel serial numbers)
+                        let datetime;
+                        let monthKey;
+                        try {
+                            // Check if monthYear is a number (Excel serial date)
+                            if (typeof monthYear === 'number') {
+                                // Convert Excel serial number to JavaScript Date
+                                // Excel dates are days since 1900-01-01, but Excel incorrectly treats 1900 as leap year
+                                const excelEpoch = new Date(1900, 0, 1);
+                                const date = new Date(excelEpoch.getTime() + (monthYear - 2) * 24 * 60 * 60 * 1000);
+                                datetime = date.toISOString();
+                                // For outflow/inflow, create month key (year not relevant)
+                                monthKey = `${date.getMonth() + 1}`; // 1-12
+                            } else {
+                                // Handle string format like "Jan-2023"
+                                const [month, year] = monthYear.split('-');
+                                const monthMap = {
+                                    'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'May': 4, 'Jun': 5,
+                                    'Jul': 6, 'Aug': 7, 'Sep': 8, 'Oct': 9, 'Nov': 10, 'Dec': 11
+                                };
+                                const monthIndex = monthMap[month];
+                                datetime = new Date(parseInt(year), monthIndex, 1).toISOString();
+                                // For outflow/inflow, create month key (year not relevant)
+                                monthKey = `${monthIndex + 1}`; // 1-12
+                            }
+                        } catch (e) {
+                            return; // Skip this row if date parsing fails
+                        }
+                        
+                        // Group by month and collect all values for statistics
+                        const monthDataKey = `${monthKey}_${fileConfig.type}_${determinedUnit}`;
+                        
+                        if (!monthlyData.has(monthDataKey)) {
+                            monthlyData.set(monthDataKey, {
+                                month: monthKey,
+                                measure: fileConfig.type,
+                                unit: determinedUnit, 
+                                values: []
+                            });
+                        }
+
+                        const monthRecord = monthlyData.get(monthDataKey);
+                        
+                        // Add values if they exist and are not NaN
+                        if (maxValue !== undefined && maxValue !== null && maxValue !== '' && !isNaN(maxValue)) {
+                            monthRecord.values.push({ type: 'max', value: parseFloat(maxValue) });
+                        }
+                        if (minValue !== undefined && minValue !== null && minValue !== '' && !isNaN(minValue)) {
+                            monthRecord.values.push({ type: 'min', value: parseFloat(minValue) });
+                        }
+                        if (avgValue !== undefined && avgValue !== null && avgValue !== '' && !isNaN(avgValue)) {
+                            monthRecord.values.push({ type: 'avg', value: parseFloat(avgValue) });
+                        }
+
+                    });
+                    
+            } catch (fileError) {
+                // Continue with other files
+            }
+        }
+                
+        // Process monthly data for all file types
+        const monthlyResults = [];
+        for (const [key, monthRecord] of monthlyData) {
+            // Skip months with no data
+            if (monthRecord.values.length === 0) {
+                continue;
+            }
+            
+            // Calculate statistics for this month
+            const maxValues = monthRecord.values.filter(v => v.type === 'max').map(v => v.value);
+            const minValues = monthRecord.values.filter(v => v.type === 'min').map(v => v.value);
+            const avgValues = monthRecord.values.filter(v => v.type === 'avg').map(v => v.value);
+            
+            // Calculate overall statistics
+            const absMax = maxValues.length > 0 ? Math.max(...maxValues) : null;
+            const absMin = minValues.length > 0 ? Math.min(...minValues) : null;
+            const overallMean = avgValues.length > 0 ? avgValues.reduce((sum, val) => sum + val, 0) / avgValues.length : null;
+            
+            // OPTION 2: Average approach - Average of all min/max values
+            const avgOfMaxValues = maxValues.length > 0 ? maxValues.reduce((sum, val) => sum + val, 0) / maxValues.length : null;
+            const avgOfMinValues = minValues.length > 0 ? minValues.reduce((sum, val) => sum + val, 0) / minValues.length : null;
+            
+                                 // Create month name for datetime field
+                     const monthNames = [
+                         'January', 'February', 'March', 'April', 'May', 'June',
+                         'July', 'August', 'September', 'October', 'November', 'December'
+                     ];
+                     const monthName = monthNames[parseInt(monthRecord.month) - 1];
+            
+                                 monthlyResults.push({
+                         datetime: monthName,
+                         measure: monthRecord.measure,
+                         unit: monthRecord.unit,
+                         // OPTION 1: Current approach (Math.min/Math.max)
+                         abs_min: absMin !== null ? absMin.toString() : null,
+                         abs_max: absMax !== null ? absMax.toString() : null,
+                         mean: overallMean !== null ? overallMean.toString() : null,
+                         // OPTION 2: Average approach
+                         min_avg: avgOfMinValues !== null ? avgOfMinValues.toString() : null,
+                         max_avg: avgOfMaxValues !== null ? avgOfMaxValues.toString() : null
+                     });
+        }
+        
+                         // Sort monthly results by month number (1-12)
+                 monthlyResults.sort((a, b) => {
+                     const monthOrder = {
+                         'January': 1, 'February': 2, 'March': 3, 'April': 4, 'May': 5, 'June': 6,
+                         'July': 7, 'August': 8, 'September': 9, 'October': 10, 'November': 11, 'December': 12
+                     };
+                     return monthOrder[a.datetime] - monthOrder[b.datetime];
+                 });
+
+        return {
+            "data": monthlyResults
+        };
+    } catch (error) {
+        return { error: error.message };
+    }
+}
+
+async function fetchUrbanDemand(itemName) {
+    try {
+        // Get dynamic date range: 5 months ago + actual month + 5 months ahead
+        let now = new Date();
+        
+        // Calculate 5 months ago
+        let fiveMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+        fiveMonthsAgo.setHours(0, 0, 0, 0);
+        
+        // Calculate 5 months ahead
+        let fiveMonthsAhead = new Date(now.getFullYear(), now.getMonth() + 5, 1);
+        fiveMonthsAhead.setHours(23, 59, 59, 999);
+
+        // Fetch the datastream to get original units
+        let datastream = await fetchDatastream(itemName, "CantonieraReservoir_MonthlyUrbanDemand");
+        if (datastream === undefined) {
+            console.log(`[ERROR] Datastream CantonieraReservoir_MonthlyUrbanDemand not found for ${itemName}`);
+            return { 
+                "data": [{
+                    "message": "No urbanDemand data found"
+                }]
+            };
+        }
+
+        // Get original units from datastream and convert to monthly units
+        let originalUnits = datastream.unitOfMeasurement.name + "(" + datastream.unitOfMeasurement.symbol + ")";
+        
+        // Since we're summing daily m³ values to get monthly totals, always show as m³/month
+        let monthlyUnits = originalUnits;
+        if (originalUnits.toLowerCase().includes("m³") || originalUnits.toLowerCase().includes("m3")) {
+            monthlyUnits = originalUnits.replace(/m³|m3/gi, "m³/month");
+        } else {
+            // If units don't contain m³, append /month to indicate monthly aggregation
+            monthlyUnits = originalUnits + "/month";
+        }
+
+        // Fetch data from the CantonieraReservoir_MonthlyUrbanDemand datastream
+        let urbanDemandObservations = await fetchAllObservationsInDatastreamInRange(
+            itemName, 
+            "CantonieraReservoir_MonthlyUrbanDemand", 
+            formatDate(fiveMonthsAgo), 
+            formatDate(fiveMonthsAhead), 
+            1000, 
+            0
+        );
+
+        // Process data by month - use the monthly values directly
+        const monthlyData = new Map();
+
+        function getMonthKey(timestamp) {
+            const date = new Date(timestamp);
+            return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-02T08:02:26.380Z`;
+        }
+
+        if (Array.isArray(urbanDemandObservations) && urbanDemandObservations.length > 0) {
+            urbanDemandObservations.forEach((obs) => {
+                const monthKey = getMonthKey(obs.time_of_measure);
+                const value = parseFloat(obs.value);
+                
+                // Sum daily values to get monthly total
+                if (monthlyData.has(monthKey)) {
+                    monthlyData.get(monthKey).value += value;
+                } else {
+                    monthlyData.set(monthKey, {
+                        "datetime": monthKey,
+                        "value": value
+                    });
+                }
+            });
+        }
+
+        // Generate urban demand data from the fetched values
+        const urbanDemandData = [];
+        const monthNames = [
+            'January', 'February', 'March', 'April', 'May', 'June',
+            'July', 'August', 'September', 'October', 'November', 'December'
+        ];
+
+        
+        // Process each month's data
+        for (const [monthKey, monthRecord] of monthlyData) {
+            const monthlyUrbanDemand = monthRecord.value;
+            
+            // Get month name for display
+            const date = new Date(monthKey);
+            const monthName = monthNames[date.getMonth()];
+            // const year = date.getFullYear();
+            // const datetime = `${monthName} ${year}`;
+            
+            urbanDemandData.push({
+                "datetime": monthName,
+                "measure": "Monthly Urban Demand",
+                "unit": monthlyUnits,
+                "value": monthlyUrbanDemand.toFixed(6)
+            });
+        }
+
+        // If no data was found, return message inside data array
+        if (urbanDemandData.length === 0) {
+            console.log(`[WARNING] No urban demand data found for ${itemName} in datastream CantonieraReservoir_MonthlyUrbanDemand`);
+            return {
+                "data": [{
+                    "message": "No urbanDemand data found"
+                }]
+            };
+        }
+
+        // Sort by month order
+        urbanDemandData.sort((a, b) => {
+            const monthOrder = {
+                'January': 1, 'February': 2, 'March': 3, 'April': 4, 'May': 5, 'June': 6,
+                'July': 7, 'August': 8, 'September': 9, 'October': 10, 'November': 11, 'December': 12
+            };
+            return monthOrder[a.datetime] - monthOrder[b.datetime];
+        });
+
+        return {
+            "data": urbanDemandData
+        };
+    } catch (error) {
+        console.log(`[ERROR] Error fetching urban demand data for ${itemName}:`, error.message);
+        throw error; 
+    }
 }
 
 async function fetchSensorsInAField(fieldName) {
@@ -469,10 +1032,17 @@ async function fetchDatastreamInAField(fieldName, datastreamName) {
 }
 
 async function fetchDatastream(fieldName, datastreamName) {
+    
     let datastreamsLink = await fetchFromDatabase(baseurl + "/Things?$filter=name eq '" + fieldName + "'").then((data) => {
+        if(data["@iot.count"] === 0) {
+            return undefined;
+        }
         return data["value"][0]["Datastreams@iot.navigationLink"];
     });
-    return await fetchFromDatabase(datastreamsLink).then(async (data) => {
+    if(datastreamsLink === undefined) {
+        return undefined;
+    }
+    return await fetchAllPagesFromDatabase(datastreamsLink).then(async (data) => {
         for (let i = 0; i < data["value"].length; i++) {
             let datastream = data["value"][i];
             if (datastream.name === datastreamName) {
@@ -493,6 +1063,7 @@ async function fetchWotObservation(datastream, measure) {
     let unit = datastream.unitOfMeasurement.name + "(" + datastream.unitOfMeasurement.symbol + ")";
     let value = measure["result"];
     let time = measure["phenomenonTime"];
+    let result_time = measure["resultTime"];
     return {
         "deviceID": deviceId,
         "property_name": property,
@@ -500,13 +1071,16 @@ async function fetchWotObservation(datastream, measure) {
         "unit_of_measurement": unit,
         "value": value,
         "time_of_measure": time,
+        "result_time": result_time,
+        "parameters": measure["parameters"]
     }
 }
 
 async function fetchAllObservationsInDatastream(fieldName, datastreamName, items, page) {
     let datastream = await fetchDatastream(fieldName, datastreamName);
     if (datastream === undefined) {
-        return "ERROR: Datastream name might be wrong";
+        console.log("ERROR: Datastream name might be wrong");
+        return undefined;
     }
     let start_skip = items * page;
     let db_pages = Math.floor(items / 100);
@@ -541,7 +1115,8 @@ async function fetchAllObservationsInDatastream(fieldName, datastreamName, items
 async function fetchAllObservationsInDatastreamInRange(fieldName, datastreamName, startTime, endTime, items, page) {
     let datastream = await fetchDatastream(fieldName, datastreamName);
     if (datastream === undefined) {
-        return "ERROR: Datastream name might be wrong";
+        console.log("ERROR: Datastream name might be wrong");
+        return undefined;
     }
     let start_skip = items * page;
     let db_pages = Math.floor(items / 100);
@@ -642,7 +1217,8 @@ async function fetchAggregateObservationInDatastream(fieldName, datastreamName, 
 async function fetchLastObservationInDatastream(fieldName, datastreamName) {
     let datastream = await fetchDatastream(fieldName, datastreamName);
     if (datastream === undefined) {
-        return "ERROR: Datastream name might be wrong";
+        console.log("ERROR: Datastream name might be wrong");
+        return undefined;
     }
     return await fetchFromDatabase(datastream["Observations@iot.navigationLink"] + "?$orderby=phenomenonTime desc&$top=1").then(async (data) => {
         if (data["value"].length <= 0) {
@@ -663,6 +1239,10 @@ async function fetchAllLastObservations(fieldName) {
     let measures = [];
     for (let i = 0; i < datastreamNames.length; i++) {
         let measure = await fetchLastObservationInDatastream(fieldName, datastreamNames[i]["name"]);
+        if (measure === undefined) {
+            console.log("ERROR: Datastream name might be wrong");
+            continue;
+        }
         if (measure !== null) {
             measures.push(measure);
         }
@@ -670,20 +1250,670 @@ async function fetchAllLastObservations(fieldName) {
     return measures;
 }
 
-servient.start().then(async (WoT) => {
-    /* FIELDS */
+async function createPropertyInST(property_data) {
+    let property_search_url = baseurl + "/ObservedProperties?$filter=name eq '" + property_data["name"] + "'";
 
+    let property_from_db = await fetchFromDatabase(property_search_url).then(async (data) => {
+        return data;
+    });
+    if (property_from_db["@iot.count"] === 0) {
+        let create_property = await postToDatabase(baseurl + "/ObservedProperties", property_data);
+        if (!create_property) {
+            return null;
+        }
+        let property_search_url = baseurl + "/ObservedProperties?$filter=name eq '" + property_data["name"] + "'";
+
+        let property_from_db = await fetchFromDatabase(property_search_url).then(async (data) => {
+            return data;
+        });
+        return property_from_db["value"][0]["@iot.id"];
+    } else {
+        return property_from_db["value"][0]["@iot.id"];
+    }
+}
+
+async function createSensorInST(sensor_data) {
+    let sensor_search_url = baseurl + "/Sensors?$filter=name eq '" + sensor_data["name"] + "'";
+
+    let sensor_from_db = await fetchFromDatabase(sensor_search_url).then(async (data) => {
+        return data;
+    });
+    if (sensor_from_db["@iot.count"] === 0) {
+        let create_sensor = await postToDatabase(baseurl + "/Sensors", sensor_data);
+        if (!create_sensor) {
+            return null;
+        }
+        let sensor_search_url = baseurl + "/Sensors?$filter=name eq '" + sensor_data["name"] + "'";
+
+        let sensor_from_db = await fetchFromDatabase(sensor_search_url).then(async (data) => {
+            return data;
+        });
+        return sensor_from_db["value"][0]["@iot.id"];
+    } else {
+        return sensor_from_db["value"][0]["@iot.id"];
+    }
+}
+
+async function getOrCreateDatastreamInST(datastream_data) {
+    let datastream_search_url = baseurl + "/Datastreams?$filter=name eq '" + datastream_data["name"] + "'";
+
+    let datastream_from_db = await fetchFromDatabase(datastream_search_url);
+    if (datastream_from_db["@iot.count"] === 0) {
+        console.log("Datastream not found in DB, creating it");
+        let create_datastream = await postToDatabase(baseurl + "/Datastreams", datastream_data);
+        if (!create_datastream) {
+            console.log("Failed to create datastream in DB");
+            return null;
+        }
+        let datastream_search_url = baseurl + "/Datastreams?$filter=name eq '" + datastream_data["name"] + "'";
+
+        let datastream_from_db = await fetchFromDatabase(datastream_search_url);
+        return datastream_from_db["value"][0]["@iot.id"];
+    } else {
+        console.log("Datastream found in DB: ", datastream_from_db);
+        return datastream_from_db["value"][0]["@iot.id"];
+    }
+}
+
+async function produceFieldThing(thing) {
+    thing.setPropertyReadHandler("fieldInformation", async () => {
+        return await fetchFieldInformation(thing.getThingDescription().fieldName);
+    });
+
+    thing.setPropertyReadHandler("sensorsList", async () => {
+        return await fetchSensorsInAField(thing.getThingDescription().fieldName);
+    });
+    thing.setPropertyReadHandler("sensorInformation", async (_params, options) => {
+        let device_id;
+        if (_params && typeof _params === "object" && "uriVariables" in _params) {
+            const uriVariables = _params.uriVariables;
+            if (!Object.keys(uriVariables).includes("deviceID")) {
+                throw new Error("Device ID is missing");
+            }
+            device_id = uriVariables["deviceID"];
+        } else {
+            throw new Error("Uri variables is missing");
+        }
+        return await fetchSensorInAField(thing.getThingDescription().fieldName, device_id);
+    });
+
+    thing.setPropertyReadHandler("propertiesList", async () => {
+        return await fetchPropertiesInAField(thing.getThingDescription().fieldName);
+    });
+    thing.setPropertyReadHandler("propertyInformation", async (_params, options) => {
+        let propertyName;
+        if (_params && typeof _params === "object" && "uriVariables" in _params) {
+            const uriVariables = _params.uriVariables;
+            if (!Object.keys(uriVariables).includes("name")) {
+                throw new Error("Property name is missing");
+            }
+            propertyName = uriVariables["name"];
+        } else {
+            throw new Error("Uri variables is missing");
+        }
+        return await fetchPropertyInAField(thing.getThingDescription().fieldName, propertyName);
+    });
+
+    thing.setPropertyReadHandler("datastreamsList", async () => {
+        return await fetchDatastreamsInAField(thing.getThingDescription().fieldName);
+    });
+    thing.setPropertyReadHandler("datastreamInformation", async (_params, options) => {
+        let datastreamName;
+        if (_params && typeof _params === "object" && "uriVariables" in _params) {
+            const uriVariables = _params.uriVariables;
+            if (!Object.keys(uriVariables).includes("name")) {
+                throw new Error("Datastream name is missing");
+            }
+            datastreamName = uriVariables["name"];
+        } else {
+            throw new Error("Uri variables is missing");
+        }
+        return await fetchDatastreamInAField(thing.getThingDescription().fieldName, datastreamName);
+    });
+
+    thing.setPropertyReadHandler("datastreamLastMeasure", async (_params, options) => {
+        let datastreamName;
+        if (_params && typeof _params === "object" && "uriVariables" in _params) {
+            const uriVariables = _params.uriVariables;
+            if (!Object.keys(uriVariables).includes("name")) {
+                throw new Error("Datastream name is missing");
+            }
+            datastreamName = uriVariables["name"];
+        } else {
+            throw new Error("Uri variables is missing");
+        }
+        return await fetchLastObservationInDatastream(thing.getThingDescription().fieldName, datastreamName);
+    });
+    thing.setPropertyReadHandler("datastreamAggregateMeasure", async (_params, options) => {
+        let datastreamName, endTime;
+        if (_params && typeof _params === "object" && "uriVariables" in _params) {
+            const uriVariables = _params.uriVariables;
+            if (!Object.keys(uriVariables).includes("name")) {
+                throw new Error("Datastream name is missing");
+            }
+            datastreamName = uriVariables["name"];
+            if (!Object.keys(uriVariables).includes("time")) {
+                endTime = "";
+            } else {
+                endTime = uriVariables["time"];
+            }
+        } else {
+            throw new Error("Uri variables is missing");
+        }
+        return await fetchAggregateObservationInDatastream(thing.getThingDescription().fieldName, datastreamName, endTime);
+    });
+    thing.setPropertyReadHandler("datastreamMeasures", async (_params, options) => {
+        let datastreamName, items, page;
+        if (_params && typeof _params === "object" && "uriVariables" in _params) {
+            const uriVariables = _params.uriVariables;
+            if (!Object.keys(uriVariables).includes("name")) {
+                throw new Error("Datastream name is missing");
+            }
+            datastreamName = uriVariables["name"];
+            if (!Object.keys(uriVariables).includes("items")) {
+                items = 100;
+            } else {
+                items = Number(uriVariables["items"]);
+            }
+            if (!Object.keys(uriVariables).includes("page")) {
+                page = 0;
+            } else {
+                page = Number(uriVariables["page"]);
+            }
+        } else {
+            throw new Error("Uri variables is missing");
+        }
+        return await fetchAllObservationsInDatastream(thing.getThingDescription().fieldName, datastreamName, items, page);
+    });
+    thing.setPropertyReadHandler("datastreamTimeRangeMeasures", async (_params, options) => {
+        let datastreamName, startTime, endTime, items, page;
+        if (_params && typeof _params === "object" && "uriVariables" in _params) {
+            const uriVariables = _params.uriVariables;
+            if (!Object.keys(uriVariables).includes("name")) {
+                throw new Error("Datastream name is missing");
+            }
+            if (!Object.keys(uriVariables).includes("start_time")) {
+                startTime = "";
+            } else {
+                startTime = uriVariables["start_time"];
+            }
+            if (!Object.keys(uriVariables).includes("end_time")) {
+                endTime = "";
+            } else {
+                endTime = uriVariables["end_time"];
+            }
+            datastreamName = uriVariables["name"];
+            if (!Object.keys(uriVariables).includes("items")) {
+                items = 100;
+            } else {
+                items = Number(uriVariables["items"]);
+            }
+            if (!Object.keys(uriVariables).includes("page")) {
+                page = 0;
+            } else {
+                page = Number(uriVariables["page"]);
+            }
+        } else {
+            throw new Error("Uri variables is missing");
+        }
+        return await fetchAllObservationsInDatastreamInRange(thing.getThingDescription().fieldName, datastreamName, startTime, endTime, items, page);
+    });
+    thing.setPropertyReadHandler("lastMeasures", async (_params, options) => {
+        return await fetchAllLastObservations(thing.getThingDescription().fieldName);
+    });
+
+
+
+    thing.setPropertyReadHandler("modelOutputs", async (_params, options) => {
+        //http://localhost/acquaountpinos/properties/modelOutputs
+        
+        // Check if this is a basin or field thing
+        const thingType = thing.getThingDescription().thingType;
+            let twoDaysAgo = new Date();
+            twoDaysAgo.setHours(0, 0, 0, 0);
+            twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+
+            let sevenDaysAhead = new Date();
+            sevenDaysAhead.setHours(0, 0, 0, 0);
+            sevenDaysAhead.setDate(sevenDaysAhead.getDate() + 8);
+
+            let daily_irr_volume_observations = await fetchAllObservationsInDatastreamInRange(thing.getThingDescription().fieldName, thing.getThingDescription().fieldName + "_DailyIrrigationGivenPrediction", formatDate(twoDaysAgo), formatDate(sevenDaysAhead), 330, 0);
+            let daily_irr_deficit_observations = await fetchAllObservationsInDatastreamInRange(thing.getThingDescription().fieldName, thing.getThingDescription().fieldName + "_DailyIrrigationDeficitPrediction", formatDate(twoDaysAgo), formatDate(sevenDaysAhead), 330, 0);
+            let daily_soil_m_observations = await fetchAllObservationsInDatastreamInRange(thing.getThingDescription().fieldName, thing.getThingDescription().fieldName + "_DailySoilMoisturePrediction", formatDate(twoDaysAgo), formatDate(sevenDaysAhead), 330, 0);
+
+            if(daily_irr_volume_observations === undefined || daily_irr_deficit_observations === undefined || daily_soil_m_observations === undefined) {
+                return {result: false, message: 'No observations found'};
+            }
+
+            let time_of_measure = new Set();
+            daily_irr_volume_observations.forEach(item => {
+                time_of_measure.add(item.time_of_measure);
+            });
+            daily_irr_deficit_observations.forEach(item => {
+                time_of_measure.add(item.time_of_measure);
+            });        
+            daily_soil_m_observations.forEach(item => {
+                time_of_measure.add(item.time_of_measure);
+            });
+            time_of_measure = Array.from(time_of_measure).sort();
+            daily_irr_volume_values = []
+            daily_irr_deficit_values = []
+            daily_soil_m_values = []
+            
+            function getLatestValueForTime(observations,time) {
+                let observations_for_the_day = observations.filter(item => item.time_of_measure == time);
+                observations_for_the_day.sort((a, b) => new Date(b.result_time) - new Date(a.result_time));
+                if (observations_for_the_day.length > 0) {
+                    return observations_for_the_day[0].value;
+                } else {
+                    return null;
+                }
+            }
+
+            time_of_measure.forEach(time => {
+                daily_irr_volume_values.push(getLatestValueForTime(daily_irr_volume_observations, time));
+                daily_irr_deficit_values.push(getLatestValueForTime(daily_irr_deficit_observations, time));
+                daily_soil_m_values.push(getLatestValueForTime(daily_soil_m_observations, time));
+            });
+
+       
+        time_of_measure_string = time_of_measure.map(item => item.split("T")[0]);
+        let irrigation_dates = await fetchFieldIrrigationDates(thing.getThingDescription().fieldName);
+        let today_date = new Date();
+        today_date.setHours(0, 0, 0, 0);
+        let vertical_lines = [{"today": today_date.toISOString().split("T")[0]}];
+        Object.keys(irrigation_dates).forEach(key => {
+            vertical_lines.push({[key]: irrigation_dates[key]});
+        });
+       return {
+            "labels":time_of_measure_string,
+            "datasets":[
+                {
+                    "label": "Suggested full irrigation",
+                    "data": daily_irr_volume_values
+                },
+                {
+                    "label": "Suggested deficit irrigation",
+                    "data": daily_irr_deficit_values
+                },
+                {
+                    "label": "Soil moisture (%)",
+                    "data": daily_soil_m_values
+                }
+            ],
+            "verticalLines": vertical_lines
+        }
+        
+    });
+
+    thing.setActionHandler("receiveMeasure", async (_params, options) => {
+        const params = await _params.value();
+        if (!Object.keys(params).includes("info")) {
+            return {result: false, message: 'Info missing in message'};
+        }
+        if (!Object.keys(params['info']).includes("deviceID")) {
+            return {result: false, message: 'Device ID missing in message'};
+        }
+       
+        if (!Object.keys(params).includes("values")) {
+            return {result: false, message: 'Values missing in message'};
+        }
+        let sensorName = params["info"]["deviceID"];
+        for (let i = 0; i < Object.keys(params["values"]).length; i++) {
+            let propertyName = Object.keys(params["values"])[i];
+            let url = baseurl + "/Datastreams?" +
+                "$filter=(Sensor/name eq '" + sensorName + "') and " +
+                "(ObservedProperty/name eq '" + propertyName + "') and " +
+                "(Thing/name eq '" + thing.getThingDescription().fieldName + "')"
+            let result = await fetchFromDatabase(url);
+            if (result['@iot.count'] === 0) {
+                return {result: false, message: 'Sensor and key value do not specify a datastream'};
+            }
+            let datastreamId = 0;
+            result.value.forEach(item => {
+                if (!item.name.includes("AVG_WEEKLY")) {
+                    datastreamId = item["@iot.id"];
+                }
+            });
+            url = baseurl + "/Datastreams(" + datastreamId + ")/Observations";
+            let phenomTime;
+            if (Object.keys(params['info']).includes("timestamp")) {
+                phenomTime = params['info']['timestamp'];
+            } else {
+                phenomTime = formatDate(new Date());
+            }
+            let observation_body = {
+                result: params["values"][propertyName],
+                phenomenonTime: phenomTime
+            };
+            if(Object.keys(params['info']).includes("resultTime")) {    
+                observation_body.resultTime = params['info']['resultTime'];
+            }
+            if(Object.keys(params['info']).includes("parameters")) {
+                observation_body.parameters = params['info']['parameters'];
+            }
+
+            let response = await postToDatabase(url, observation_body);
+            if (!response) {
+                return {result: false, message: 'Something failed when accessing the database'};
+            }
+            await writeToCSV(sensorName, observation_body.phenomenonTime);
+            thing.emitEvent("newObservation", {
+                deviceID: sensorName,
+                observedProperty: propertyName,
+                value: observation_body.result,
+                time: observation_body.phenomenonTime
+            });
+        }
+        return {result: true, message: 'Observation(s) stored successfully'};
+    });
+
+    thing.setActionHandler("sendCommand", async (_params, options) => {
+        const params = await _params.value();
+        if (!Object.keys(params).includes("values")) {
+            return {result: false, message: 'values missing in message'};
+        }
+        if (!Object.keys(params["values"]).includes("action_type")) {
+            return {result: false, message: 'action_type missing in message'};
+        }
+        let actionType = params["values"]["action_type"];
+
+        let endpoint = ""
+        if (actionType === "irrigate" || actionType === "uplink_frequency_change") {
+            endpoint = "https://y7hjs81225.execute-api.eu-west-1.amazonaws.com/external/snd_eut_data";
+        } else if (actionType === "device_status") {
+            endpoint = "https://y7hjs81225.execute-api.eu-west-1.amazonaws.com/external/get_eut_data";
+        } else {
+            return {result: false, message: 'action_type not supported'};
+        }
+        let requestBody = JSON.stringify(params);
+        const reqOptions = {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': 'UBEyNRVJfl5PXZbQ0ksIW91DVb7CysrO17ln63gN'
+            },
+            body: requestBody
+        };
+        let response = await fetch(endpoint, reqOptions).then(function (response) {
+            return response;
+        });
+        return await response.json();
+    });
+
+    thing.setActionHandler("createSensor", async (_params, options) => {
+        const params = await _params.value();
+        if (!Object.keys(params).includes("values")) {
+            return {result: false, message: 'values missing in message'};
+        }
+        // TODO Rebre paràmetres d'entrada
+
+        let sens = {
+            datastreams: [
+                {
+                    property_key: "air_temperature",
+                    property_name: "Air Temperature",
+                },
+                {
+                    property_key: "air_humidity",
+                    property_name: "Air Humidity",
+                }
+            ]
+        }
+
+        for (let datastr in sens["datastreams"]) {
+
+        }
+
+        return {message: 'Function not yet implemented'}
+    });
+
+    thing.getThingDescription().href = "84.88.76.18";
+
+    thing.expose().then(() => {
+        console.info(`${thing.getThingDescription().title} ready`);
+    });
+    console.log(`Produced ${thing.getThingDescription().title}`);
+}
+
+servient.start().then(async (WoT) => {
+    let mainJson = readJsonFileSync('src/resources/thingDescription/main.td.json');
+    let creationPath = 'src/resources/thingDescription/Fields/Custom/'
+
+    WoT.produce(mainJson).then((thing) => {
+        thing.setActionHandler("createThing", async (_params, options) => {
+            const params = await _params.value();
+            if (!Object.keys(params).includes("fieldName")) {
+                return {status: false, message: 'Field name missing in message'};
+            }
+            if (!Object.keys(params).includes("username")) {
+                return {status: false, message: 'Username missing in message'};
+            }
+            if (!Object.keys(params).includes("environment")) {
+                return {status: false, message: 'Environment missing in message'};
+            }
+            let desc = "";
+            if (Object.keys(params).includes("description")) {
+                desc = params["description"];
+            }else
+            {
+                desc = "Field " + params["username"] + "-" + params["fieldName"] + "-" + params["environment"];
+            }
+
+            let fieldFinalName = params["username"] + "-" + params["fieldName"] + "-" + params["environment"];
+            fieldFinalName = fieldFinalName.replace(/\s+/g, '');
+            // Replace accented characters with their unaccented equivalents
+            fieldFinalName = fieldFinalName.normalize("NFD");
+            fieldFinalName = fieldFinalName.replace(/[^a-zA-Z0-9\-]/g, '').toLowerCase();
+            let fieldId = fieldFinalName;
+            let fieldExists = false;
+            Object.values(servient.getThings()).forEach(thing => {
+                if (thing.title === fieldFinalName) {
+                    fieldExists = true;
+                    return
+                }
+            });
+
+            if (fieldExists) {
+                throw new Error('Field already exists');
+            }
+
+            let jsonField = {
+                "id": "acquaount:" + fieldId,
+                "title": fieldFinalName,
+                "fieldName":fieldFinalName,
+                "description": fieldFinalName
+            };
+
+            fs.writeFileSync(creationPath + fieldId + ".td.json", JSON.stringify(jsonField), {flag: 'w'}, function (err) {
+                if (err) {
+                    console.log(err);
+                    return {status: true, message: 'Error writing the thing file'};
+                }
+            });
+
+            // Model running is handled by another service
+            /*
+            let runInfo = {
+                "fieldTitle": fieldFinalName,
+                "username": params["username"],
+                "fieldName": params["fieldName"]
+            }
+
+            fs.writeFileSync("src/resources/modelService/Irrigation Model/runs/" + fieldFinalName.toLowerCase() + ".run.json", JSON.stringify(runInfo), {flag: 'w'}, function (err) {
+                if (err) {
+                    console.log(err);
+                    return {status: true, message: 'Error writing the run file'};
+                }
+            });
+            */
+
+            let things_url = baseurl + "/Things"
+            let thing_body = {
+                "name": fieldFinalName,
+                "description": fieldFinalName,
+                "properties": {
+                    "username": params["username"],
+                    "fieldName": params["fieldName"],
+                    "pilot": "Custom",
+                    "earlyIrrigationDate": "",
+                    "lateIrrigationDate": "",
+                    "limitIrrigationDate": ""
+                }
+            };
+
+            let response = await postToDatabase(things_url, thing_body);
+            if (!response) {
+                return {result: false, message: 'Something failed when accessing the database'};
+            }
+
+            let jsonBase = readJsonFileSync('src/resources/thingDescription/Fields/base.td.json');
+
+            for (const key in jsonField) {
+                jsonBase[key] = jsonField[key];
+            }
+
+            let thingId = await fetchFromDatabase(things_url + "?$filter=name eq '" + fieldFinalName + "'").then(async (data) => {
+                return data["value"][0]["@iot.id"];
+            });
+            console.log("Thing ID: ", thingId);
+
+            await setThingLocation(thingId, 0.0, 0.0);
+
+            sensor_data = {
+                "name": fieldFinalName,
+                "description": "Model outputs for a field",
+                "encodingType": "application/pdf",
+                "properties": {},
+                "metadata": "Sensor"
+            }
+            let sensorId = await createSensorInST(sensor_data);
+
+            properties_units = {
+                "Irrigation Volume Prediction": "m3",
+                "Irrigation Deficit Prediction": "m3",
+                "Soil Moisture Prediction": "%",
+                "Daily Irrigation Given Prediction": "m3",
+                "Daily Irrigation Deficit Prediction": "m3",
+                "Daily Soil Moisture Prediction": "%"
+            }
+
+            properties_data = [
+                {
+                    "name": "Irrigation Volume Prediction",
+                    "description": "Irrigation Volume Prediction, result of the irrigation model",
+                    "definition": "Irrigation Volume",
+                    "properties": {}
+                },
+                {
+                    "name": "Irrigation Deficit Prediction",
+                    "description": "Irrigation Deficit Prediction, result of the irrigation model",
+                    "definition": "Irrigation Deficit",
+                    "properties": {}
+                }, {
+                    "name": "Soil Moisture Prediction",
+                    "description": "Soil Moisture Prediction, result of the irrigation model",
+                    "definition": "Soil Moisture",
+                    "properties": {}
+                }, {
+                    "name": "Daily Irrigation Given Prediction",
+                    "description": "Daily Irrigation Given Prediction, result of the irrigation model",
+                    "definition": "Irrigation Given",
+                    "properties": {}
+                    },
+                    {
+                    "name": "Daily Irrigation Deficit Prediction",
+                    "description": "Daily Irrigation Deficit Prediction, result of the irrigation model",
+                    "definition": "Daily Irrigation Deficit",
+                    "properties": {}
+                    },
+                    {
+                    "name": "Daily Soil Moisture Prediction",
+                    "description": "Daily Soil Moisture Prediction, result of the irrigation model",
+                    "definition": "Daily Soil Moisture",
+                    "properties": {}
+                    }
+            ]
+            
+            for (let propert of properties_data) {
+                let propertyId = await createPropertyInST(propert);
+
+                let datastream_data = {                    
+                    "name": fieldFinalName + "_" + propert["name"].replaceAll(" ", ""),
+                    "description": propert["description"],
+                    "observationType": "Measurement",
+                    "unitOfMeasurement": {
+                        "name": properties_units[propert["name"]],
+                        "symbol": properties_units[propert["name"]],
+                        "definition": properties_units[propert["name"]]
+                    },
+                    "Thing": {
+                        "@iot.id": thingId.toString()
+                    },
+                    "Sensor": {
+                        "@iot.id": sensorId.toString()
+                    },
+                    "ObservedProperty": {
+                        "@iot.id": propertyId.toString()
+                    }
+                }
+
+                await getOrCreateDatastreamInST(datastream_data);
+            }
+
+            WoT.produce(jsonBase).then((thing2) => {
+                produceFieldThing(thing2);
+            }).catch((e) => {
+                console.log(e);
+            });
+
+            return {status: true, message: 'Thing created successfully', thingId: fieldFinalName};
+        });
+
+        thing.setActionHandler("listThings", async (_params, options) => {
+            const params = await _params.value();
+            if (!Object.keys(params).includes("thingType")) {
+                return {status: false, message: 'thingType missing in message'};
+            }
+            let thingType = params["thingType"];
+            let thingsList = [];
+            Object.values(servient.getThings()).forEach(thing => {
+                if (thing.thingType == thingType) {
+                    thingsList.push({
+                        title: thing.title,
+                        id: thing.id,
+                        thingType: thing.thingType
+                    });
+                }
+            });
+            
+            
+            return {status: true, message: 'Things listed successfully', things: thingsList};
+            
+        });
+        thing.expose().then(() => {
+            console.info(`${thing.getThingDescription().title} ready`);
+        });
+        console.log(`Produced ${thing.getThingDescription().title}`);
+    }).catch((e) => {
+        console.log(e);
+    });
+
+    /* FIELDS */
     let patterns = [
+        'src/resources/thingDescription/Fields/Custom/*',
         'src/resources/thingDescription/Fields/Italy/*',
         'src/resources/thingDescription/Fields/Jordan/*',
         'src/resources/thingDescription/Fields/Lebanon/*',
         'src/resources/thingDescription/Fields/Tunisia/*',
+        'src/resources/thingDescription/Fields/Custom/*',
     ]
 
     let filenames = [];
     for (const pattern of patterns) {
         filenames = filenames.concat(glob.globSync(pattern));
     }
+
     filenames.push('src/resources/thingDescription/Fields/Demo/demo.td.json');
 
     for (let i = 0; i < filenames.length; i++) {
@@ -699,254 +1929,13 @@ servient.start().then(async (WoT) => {
         }
 
         WoT.produce(jsonBase).then((thing) => {
-            thing.setPropertyReadHandler("fieldInformation", async () => {
-                return await fetchFieldInformation(thing.getThingDescription().fieldName);
-            });
-
-            thing.setPropertyReadHandler("sensorsList", async () => {
-                return await fetchSensorsInAField(thing.getThingDescription().fieldName);
-            });
-            thing.setPropertyReadHandler("sensorInformation", async (_params, options) => {
-                let device_id;
-                if (_params && typeof _params === "object" && "uriVariables" in _params) {
-                    const uriVariables = _params.uriVariables;
-                    if (!Object.keys(uriVariables).includes("deviceID")) {
-                        throw new Error("Device ID is missing");
-                    }
-                    device_id = uriVariables["deviceID"];
-                } else {
-                    throw new Error("Uri variables is missing");
-                }
-                return await fetchSensorInAField(thing.getThingDescription().fieldName, device_id);
-            });
-
-            thing.setPropertyReadHandler("propertiesList", async () => {
-                return await fetchPropertiesInAField(thing.getThingDescription().fieldName);
-            });
-            thing.setPropertyReadHandler("propertyInformation", async (_params, options) => {
-                let propertyName;
-                if (_params && typeof _params === "object" && "uriVariables" in _params) {
-                    const uriVariables = _params.uriVariables;
-                    if (!Object.keys(uriVariables).includes("name")) {
-                        throw new Error("Property name is missing");
-                    }
-                    propertyName = uriVariables["name"];
-                } else {
-                    throw new Error("Uri variables is missing");
-                }
-                return await fetchPropertyInAField(thing.getThingDescription().fieldName, propertyName);
-            });
-
-            thing.setPropertyReadHandler("datastreamsList", async () => {
-                return await fetchDatastreamsInAField(thing.getThingDescription().fieldName);
-            });
-            thing.setPropertyReadHandler("datastreamInformation", async (_params, options) => {
-                let datastreamName;
-                if (_params && typeof _params === "object" && "uriVariables" in _params) {
-                    const uriVariables = _params.uriVariables;
-                    if (!Object.keys(uriVariables).includes("name")) {
-                        throw new Error("Datastream name is missing");
-                    }
-                    datastreamName = uriVariables["name"];
-                } else {
-                    throw new Error("Uri variables is missing");
-                }
-                return await fetchDatastreamInAField(thing.getThingDescription().fieldName, datastreamName);
-            });
-
-            thing.setPropertyReadHandler("datastreamLastMeasure", async (_params, options) => {
-                let datastreamName;
-                if (_params && typeof _params === "object" && "uriVariables" in _params) {
-                    const uriVariables = _params.uriVariables;
-                    if (!Object.keys(uriVariables).includes("name")) {
-                        throw new Error("Datastream name is missing");
-                    }
-                    datastreamName = uriVariables["name"];
-                } else {
-                    throw new Error("Uri variables is missing");
-                }
-                return await fetchLastObservationInDatastream(thing.getThingDescription().fieldName, datastreamName);
-            });
-            thing.setPropertyReadHandler("datastreamAggregateMeasure", async (_params, options) => {
-                let datastreamName, endTime;
-                if (_params && typeof _params === "object" && "uriVariables" in _params) {
-                    const uriVariables = _params.uriVariables;
-                    if (!Object.keys(uriVariables).includes("name")) {
-                        throw new Error("Datastream name is missing");
-                    }
-                    datastreamName = uriVariables["name"];
-                    if (!Object.keys(uriVariables).includes("time")) {
-                        endTime = "";
-                    } else {
-                        endTime = uriVariables["time"];
-                    }
-                } else {
-                    throw new Error("Uri variables is missing");
-                }
-                return await fetchAggregateObservationInDatastream(thing.getThingDescription().fieldName, datastreamName, endTime);
-            });
-            thing.setPropertyReadHandler("datastreamMeasures", async (_params, options) => {
-                let datastreamName, items, page;
-                if (_params && typeof _params === "object" && "uriVariables" in _params) {
-                    const uriVariables = _params.uriVariables;
-                    if (!Object.keys(uriVariables).includes("name")) {
-                        throw new Error("Datastream name is missing");
-                    }
-                    datastreamName = uriVariables["name"];
-                    if (!Object.keys(uriVariables).includes("items")) {
-                        items = 100;
-                    } else {
-                        items = Number(uriVariables["items"]);
-                    }
-                    if (!Object.keys(uriVariables).includes("page")) {
-                        page = 0;
-                    } else {
-                        page = Number(uriVariables["page"]);
-                    }
-                } else {
-                    throw new Error("Uri variables is missing");
-                }
-                return await fetchAllObservationsInDatastream(thing.getThingDescription().fieldName, datastreamName, items, page);
-            });
-            thing.setPropertyReadHandler("datastreamTimeRangeMeasures", async (_params, options) => {
-                let datastreamName, startTime, endTime, items, page;
-                if (_params && typeof _params === "object" && "uriVariables" in _params) {
-                    const uriVariables = _params.uriVariables;
-                    if (!Object.keys(uriVariables).includes("name")) {
-                        throw new Error("Datastream name is missing");
-                    }
-                    if (!Object.keys(uriVariables).includes("start_time")) {
-                        startTime = "";
-                    } else {
-                        startTime = uriVariables["start_time"];
-                    }
-                    if (!Object.keys(uriVariables).includes("end_time")) {
-                        endTime = "";
-                    } else {
-                        endTime = uriVariables["end_time"];
-                    }
-                    datastreamName = uriVariables["name"];
-                    if (!Object.keys(uriVariables).includes("items")) {
-                        items = 100;
-                    } else {
-                        items = Number(uriVariables["items"]);
-                    }
-                    if (!Object.keys(uriVariables).includes("page")) {
-                        page = 0;
-                    } else {
-                        page = Number(uriVariables["page"]);
-                    }
-                } else {
-                    throw new Error("Uri variables is missing");
-                }
-                return await fetchAllObservationsInDatastreamInRange(thing.getThingDescription().fieldName, datastreamName, startTime, endTime, items, page);
-            });
-            thing.setPropertyReadHandler("lastMeasures", async (_params, options) => {
-                return await fetchAllLastObservations(thing.getThingDescription().fieldName);
-            });
-
-            thing.setActionHandler("receiveMeasure", async (_params, options) => {
-                const params = await _params.value();
-                if (!Object.keys(params).includes("info")) {
-                    return {result: false, message: 'Info missing in message'};
-                }
-                if (!Object.keys(params['info']).includes("deviceID")) {
-                    return {result: false, message: 'Device ID missing in message'};
-                }
-                if (!Object.keys(params['info']).includes("timestamp")) {
-                }
-                if (!Object.keys(params).includes("values")) {
-                    return {result: false, message: 'Values missing in message'};
-                }
-                let sensorName = params["info"]["deviceID"];
-                for (let i = 0; i < Object.keys(params["values"]).length; i++) {
-                    let propertyName = Object.keys(params["values"])[i];
-                    let url = baseurl + "/Datastreams?" +
-                        "$filter=(Sensor/name eq '" + sensorName + "') and " +
-                        "(ObservedProperty/name eq '" + propertyName + "') and " +
-                        "(Thing/name eq '" + thing.getThingDescription().fieldName + "')"
-                    let result = await fetchFromDatabase(url);
-                    if (result['@iot.count'] === 0) {
-                        return {result: false, message: 'Sensor and key value do not specify a datastream'};
-                    }
-                    let datastreamId = 0;
-                    result.value.forEach(item => {
-                        if (!item.name.includes("AVG_WEEKLY")) {
-                            datastreamId = item["@iot.id"];
-                        }
-                    });
-                    url = baseurl + "/Datastreams(" + datastreamId + ")/Observations";
-                    let phenomTime;
-                    if (Object.keys(params['info']).includes("timestamp")) {
-                        phenomTime = params['info']['timestamp'];
-                    } else {
-                        phenomTime = formatDate(new Date());
-                    }
-                    let observation_body = {
-                        result: params["values"][propertyName],
-                        phenomenonTime: phenomTime
-                    };
-                    let response = await postToDatabase(url, observation_body);
-                    if (!response) {
-                        return {result: false, message: 'Something failed when accessing the database'};
-                    }
-                    await writeToCSV(sensorName, observation_body.phenomenonTime);
-                    thing.emitEvent("newObservation", {
-                        deviceID: sensorName,
-                        observedProperty: propertyName,
-                        value: observation_body.result,
-                        time: observation_body.phenomenonTime,
-                    });
-                }
-                return {result: true, message: 'Observation(s) stored successfully'};
-            });
-
-            thing.setActionHandler("sendCommand", async (_params, options) => {
-                const params = await _params.value();
-                if (!Object.keys(params).includes("values")) {
-                    return {result: false, message: 'values missing in message'};
-                }
-                if (!Object.keys(params["values"]).includes("action_type")) {
-                    return {result: false, message: 'action_type missing in message'};
-                }
-                let actionType = params["values"]["action_type"];
-
-                let endpoint = ""
-                if (actionType === "irrigate" || actionType === "uplink_frequency_change") {
-                    endpoint = "https://y7hjs81225.execute-api.eu-west-1.amazonaws.com/external/snd_eut_data";
-                } else if (actionType === "device_status") {
-                    endpoint = "https://y7hjs81225.execute-api.eu-west-1.amazonaws.com/external/get_eut_data";
-                } else {
-                    return {result: false, message: 'action_type not supported'};
-                }
-                let requestBody = JSON.stringify(params);
-                const reqOptions = {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'x-api-key': 'UBEyNRVJfl5PXZbQ0ksIW91DVb7CysrO17ln63gN'
-                    },
-                    body: requestBody
-                };
-                let response = await fetch(endpoint, reqOptions).then(function (response) {
-                    return response;
-                });
-                return await response.json();
-            });
-
-            thing.getThingDescription().href = "84.88.76.18";
-
-            thing.expose().then(() => {
-                console.info(`${thing.getThingDescription().title} ready`);
-            });
-            console.log(`Produced ${thing.getThingDescription().title}`);
+            produceFieldThing(thing);
         }).catch((e) => {
             console.log(e);
         });
     }
 
     /* BASIN WATER RESOURCE */
-
     patterns = [
         'src/resources/thingDescription/Basin/WaterResource/Italy/*',
         'src/resources/thingDescription/Basin/WaterResource/Tunisia/*',
@@ -973,6 +1962,15 @@ servient.start().then(async (WoT) => {
         WoT.produce(jsonBase).then((thing) => {
             thing.setPropertyReadHandler("fieldInformation", async () => {
                 return await fetchFieldInformation(thing.getThingDescription().itemName);
+            });
+                        
+            thing.setPropertyReadHandler("modelOutputs", async (_params, options) => {
+                return await fetchBasinInformation(thing.getThingDescription().itemName);
+                // return {result: true, message: 'Model outputs not yet implemented'};
+            }); 
+
+            thing.setPropertyReadHandler("urbanDemand", async (_params, options) => {
+                return await fetchUrbanDemand(thing.getThingDescription().itemName);
             });
 
             thing.setPropertyReadHandler("sensorsList", async () => {
@@ -1117,16 +2115,20 @@ servient.start().then(async (WoT) => {
                 return await fetchAllLastObservations(thing.getThingDescription().itemName);
             });
 
+            thing.setPropertyReadHandler("historicalData", async (_params, options) => {
+                return await fetchHistoricalData(thing.getThingDescription().itemName);
+            });
+
             thing.setActionHandler("receiveMeasure", async (_params, options) => {
                 const params = await _params.value();
+                console.log(params);
                 if (!Object.keys(params).includes("info")) {
                     return {result: false, message: 'Info missing in message'};
                 }
                 if (!Object.keys(params['info']).includes("deviceID")) {
                     return {result: false, message: 'Device ID missing in message'};
                 }
-                if (!Object.keys(params['info']).includes("timestamp")) {
-                }
+                
                 if (!Object.keys(params).includes("values")) {
                     return {result: false, message: 'Values missing in message'};
                 }
@@ -1157,7 +2159,14 @@ servient.start().then(async (WoT) => {
                     let observation_body = {
                         result: params["values"][propertyName],
                         phenomenonTime: phenomTime
+                        
                     };
+                    if(Object.keys(params['info']).includes("resultTime")) {    
+                        observation_body.resultTime = params['info']['resultTime'];
+                    }
+                    if(Object.keys(params['info']).includes("parameters")) {
+                        observation_body.parameters = params['info']['parameters'];
+                    }
                     let response = await postToDatabase(url, observation_body);
                     if (!response) {
                         return {result: false, message: 'Something failed when accessing the database'};
@@ -1166,8 +2175,8 @@ servient.start().then(async (WoT) => {
                     thing.emitEvent("newObservation", {
                         deviceID: sensorName,
                         observedProperty: propertyName,
-                        value: observation_body.result,
-                        time: observation_body.phenomenonTime,
+                        value: observation_body.result, 
+                        time: observation_body.phenomenonTime
                     });
                 }
                 return {result: true, message: 'Observation(s) stored successfully'};
@@ -1218,7 +2227,6 @@ servient.start().then(async (WoT) => {
     }
 
     /* STATIONS */
-
     patterns = [
         'src/resources/thingDescription/Stations/Tunisia/*',
         'src/resources/thingDescription/Stations/Jordan/*',
@@ -1380,9 +2388,7 @@ servient.start().then(async (WoT) => {
                 }
                 if (!Object.keys(params['info']).includes("deviceID")) {
                     return {result: false, message: 'Device ID missing in message'};
-                }
-                if (!Object.keys(params['info']).includes("timestamp")) {
-                }
+                }                
                 if (!Object.keys(params).includes("values")) {
                     return {result: false, message: 'Values missing in message'};
                 }
@@ -1410,10 +2416,17 @@ servient.start().then(async (WoT) => {
                     } else {
                         phenomTime = formatDate(new Date());
                     }
+    
                     let observation_body = {
                         result: params["values"][propertyName],
                         phenomenonTime: phenomTime
                     };
+                    if(Object.keys(params['info']).includes("resultTime")) {    
+                        observation_body.resultTime = params['info']['resultTime'];
+                    }
+                    if(Object.keys(params['info']).includes("parameters")) {
+                        observation_body.parameters = params['info']['parameters'];
+                    }
                     let response = await postToDatabase(url, observation_body);
                     if (!response) {
                         return {result: false, message: 'Something failed when accessing the database'};
@@ -1423,7 +2436,7 @@ servient.start().then(async (WoT) => {
                         deviceID: sensorName,
                         observedProperty: propertyName,
                         value: observation_body.result,
-                        time: observation_body.phenomenonTime,
+                        time: observation_body.phenomenonTime
                     });
                 }
                 return {result: true, message: 'Observation(s) stored successfully'};
@@ -1472,4 +2485,8 @@ servient.start().then(async (WoT) => {
             console.log(e);
         });
     }
+
+
+
+    /* START SERVER */
 });

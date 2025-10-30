@@ -8,7 +8,7 @@ import urllib3
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-baseurl = "https://84.88.76.18/wotst/FROST-Server/v1.1"
+baseurl = "http://sensorthings-api:8080/FROST-Server/v1.1"
 
 if __name__ in "__main__":
     print(sys.argv[0])

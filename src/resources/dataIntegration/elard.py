@@ -84,7 +84,7 @@ def get_function(thing, ftplock=None):
 
 
         ftp.quit()
-        if ftplock is not None:
+        if ftplock is not None and ftplock.locked():
             ftplock.release()
         lock.release()
         return output_data
@@ -115,7 +115,7 @@ def get_historic_function(thing, ftplock=None):
                 ftp.retrlines(f"RETR {file}", callback=process_line)
 
         ftp.quit()
-        if ftplock is not None:
+        if ftplock is not None and ftplock.locked():
             ftplock.release()
         lock.release()
         return output_data

@@ -1,3 +1,4 @@
+import threading
 from datetime import datetime, timedelta
 from ftplib import FTP
 
@@ -119,4 +120,13 @@ def get_historic_function(thing, ftplock):
 
 
 if __name__ in "__main__":
-    ftp_connection()
+    f = get_function("Well_N8_Arborea", threading.Lock())
+    dt = f()
+    print(dt)
+    ks = []
+    print(dt[0])
+    for measure in dt:
+        for key in measure['values']:
+            if key not in ks:
+                ks.append(key)
+    print(ks, len(ks))

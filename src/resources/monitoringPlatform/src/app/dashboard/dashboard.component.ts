@@ -54,7 +54,8 @@ export class DashboardComponent implements OnInit {
     {name: 'Italy'},
     {name: 'Jordan'},
     {name: 'Tunisia'},
-    {name: 'Lebanon'}
+    {name: 'Lebanon'},
+    {name: 'Custom'}
   ]
   colors = [
     "#FF0000", // Red
@@ -102,24 +103,28 @@ export class DashboardComponent implements OnInit {
     this.fields.set("Jordan", []);
     this.fields.set("Lebanon", []);
     this.fields.set("Tunisia", []);
+    this.fields.set("Custom", []);
 
     this.stations.set("Demo", []);
     this.stations.set("Italy", []);
     this.stations.set("Jordan", []);
     this.stations.set("Lebanon", []);
     this.stations.set("Tunisia", []);
+    this.stations.set("Custom", []);
 
     this.basinResource.set("Demo", []);
     this.basinResource.set("Italy", []);
     this.basinResource.set("Jordan", []);
     this.basinResource.set("Lebanon", []);
     this.basinResource.set("Tunisia", []);
+    this.basinResource.set("Custom", []);
 
     this.basinDemand.set("Demo", []);
     this.basinDemand.set("Italy", []);
     this.basinDemand.set("Jordan", []);
     this.basinDemand.set("Lebanon", []);
     this.basinDemand.set("Tunisia", []);
+    this.basinDemand.set("Custom", []);
 
     this.apiService.getAllThings().subscribe(v => {
       v.forEach(t => {

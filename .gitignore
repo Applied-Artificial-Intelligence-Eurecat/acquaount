@@ -12,3 +12,5 @@ src/resources/db-data
 /src/resources/db-backup.zip
 /src/resources/dataIntegration/dades/
 /src/resources/modelService/dk/HMS_Tirso_v2/
+
+/src/resources/modelService/Irrigation Model/SWB_model_III_version/cloudkey.json

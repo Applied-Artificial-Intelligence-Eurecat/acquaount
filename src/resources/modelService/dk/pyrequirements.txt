@@ -1,0 +1,12 @@
+cdsapi
+netCDF4
+scipy
+xarray
+numpy
+packaging
+pandas
+pydap
+h5netcdf
+zarr
+cftime
+iris

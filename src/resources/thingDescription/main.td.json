@@ -1,0 +1,142 @@
+{
+  "id": "acquaount:main",
+  "@context": "https://www.w3.org/2022/wot/td/v1.1",
+  "title": "main",
+  "thingType": "Admin",
+  "base": "http://84.88.76.18",
+  "securityDefinitions": {
+    "basic_sc": {
+      "scheme": "nosec"
+    }
+  },
+  "security": [
+    "basic_sc"
+  ],
+  "description": "Main Thing Description",
+  "properties": {},
+  "actions": {
+    "createThing": {
+      "safe": true,
+      "idempotent": false,
+      "input": {
+        "type": "object",
+        "description": "Everything necessary for the action",
+        "readOnly": false,
+        "writeOnly": false,
+        "properties": {
+          "fieldName": {
+            "type": "string",
+            "description": "The name of the field",
+            "readOnly": false,
+            "writeOnly": false
+          },
+          "username": {
+            "type": "string",
+            "description": "username of the person creating the field",
+            "readOnly": false,
+            "writeOnly": false
+          },
+          "environment": {
+            "type": "string",
+            "description": "Environment used to create the field",
+            "readOnly": false,
+            "writeOnly": false
+          },
+          "description": {
+            "type": "string",
+            "description": "An optional description for the field",
+            "readOnly": false,
+            "writeOnly": false
+          }
+        }
+      },
+      "output": {
+        "description": "Returns true/false if action was sent correctly, and a message with the thing url",
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "boolean",
+            "description": "If the action was performed successfully",
+            "readOnly": false,
+            "writeOnly": false
+          },
+          "message": {
+            "type": "string",
+            "description": "The url of the field if successful, error description if not",
+            "readOnly": false,
+            "writeOnly": false
+          },
+          "thingId": {
+            "type": "string",
+            "description": "The id of the field if successful",
+            "readOnly": false,
+            "writeOnly": false
+          }
+        },
+        "readOnly": false,
+        "writeOnly": false
+      },
+      "forms": [
+        {
+          "href": "/actions/createThing",
+          "contentType": "application/json",
+          "op": "invokeaction",
+          "htv:methodName": "POST"
+        }
+      ]
+    },
+    "listThings": {
+      "safe": true,
+      "idempotent": false,
+      "input": {
+        "type": "object",
+        "description": "The type of thing to list",
+        "readOnly": false,
+        "writeOnly": false, 
+        "properties": {
+          "thingType": {
+            "type": "string",
+            "description": "The type of thing to list",
+            "readOnly": false,
+            "writeOnly": false
+          }          
+        }
+      },
+      "output": {
+        "description": "Returns an array of thing urls",
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "boolean",
+            "description": "If the action was performed successfully",
+            "readOnly": false,
+            "writeOnly": false
+          },
+          "message": {
+            "type": "string",
+            "description": "The message of the action",
+            "readOnly": false,
+            "writeOnly": false
+          },
+          "things": {
+            "type": "array",
+            "description": "The array of thing urls",
+            "readOnly": false,
+            "writeOnly": false
+          }
+        },
+        "readOnly": false,
+        "writeOnly": false
+      },
+      "forms": [
+        {
+          "href": "/actions/listThings",
+          "contentType": "application/json",
+          "op": "invokeaction",
+          "htv:methodName": "POST"
+        }
+      ]
+    }
+  },
+  "events": {}
+}

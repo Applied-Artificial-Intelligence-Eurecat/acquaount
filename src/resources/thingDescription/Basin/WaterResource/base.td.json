@@ -715,6 +715,122 @@
           }
         }
       }
+    },
+    "modelOutputs": {
+      "description": "Model outputs of the Irrigation Model of the thing",
+      "readOnly": true,
+      "writeOnly": false,
+      "observable": false,
+      "forms": [
+        {
+          "href": "/properties/modelOutputs",
+          "contentType": "application/json",
+          "op": "readproperty",
+          "htv:methodName": "GET"
+        }
+      ],
+      "type": "object",
+      "properties": {}
+    },
+    "historicalData": {
+      "description": "Historical data from Excel files for the basin",
+      "readOnly": true,
+      "writeOnly": false,
+      "observable": false,
+      "forms": [
+        {
+          "href": "/properties/historicalData",
+          "contentType": "application/json",
+          "op": "readproperty",
+          "htv:methodName": "GET"
+        }
+      ],
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "array",
+          "description": "Array of historical data records grouped by month",
+          "items": {
+            "type": "object",
+            "properties": {
+              "datetime": {
+                "type": "string",
+                "description": "ISO datetime of the measurement (first day of month)"
+              },
+              "measure": {
+                "type": "string",
+                "description": "Type of measurement (volume, inflow, outflow)"
+              },
+              "unit": {
+                "type": "string",
+                "description": "Unit of measurement"
+              },
+              "min": {
+                "type": "string",
+                "description": "Minimum value for the month"
+              },
+              "max": {
+                "type": "string",
+                "description": "Maximum value for the month"
+              },
+              "average": {
+                "type": "string",
+                "description": "Average value for the month"
+              }
+            }
+          }
+        },
+        "total_records": {
+          "type": "number",
+          "description": "Total number of records returned"
+        },
+        "files_processed": {
+          "type": "number",
+          "description": "Number of Excel files processed"
+        }
+      }
+    },
+    "urbanDemand": {
+      "description": "Urban water demand data for the basin",
+      "readOnly": true,
+      "writeOnly": false,
+      "observable": false,
+      "forms": [
+        {
+          "href": "/properties/urbanDemand",
+          "contentType": "application/json",
+          "op": "readproperty",
+          "htv:methodName": "GET"
+        }
+      ],
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "array",
+          "description": "Array of urban demand data records",
+          "items": {
+            "type": "object",
+            "properties": {
+              "datetime": {
+                "type": "string",
+                "description": "Month name (e.g., January, February)"
+              },
+              "measure": {
+                "type": "string",
+                "description": "Type of measurement (urban_demand)"
+              },
+              "unit": {
+                "type": "string",
+                "description": "Unit of measurement (Mmc)"
+              },
+              "value": {
+                "type": "string",
+                "description": "Urban demand value for the month"
+              }
+            }
+          }
+        }
+      }
     }
   },
   "actions": {

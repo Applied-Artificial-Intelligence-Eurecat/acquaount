@@ -6,8 +6,11 @@ services:
       dockerfile: Dockerfile
     volumes:
       - ./src/main/:/usr/src/app/src/main
+      - ./src/resources/thingDescription/:/usr/src/app/src/resources/thingDescription
+      - ./src/resources/modelService/Irrigation Model/runs/:/usr/src/app/src/resources/modelService/Irrigation Model/runs
+      - ./src/resources/historicalData:/usr/src/app/src/resources/historicalData
     ports:
-      - "80:80"
+      - "2080:80"
     depends_on:
       - sensorthings-api
 
@@ -18,6 +21,15 @@ services:
     volumes:
       - ./src/resources/dataIntegration/logs/:/logs/
       - ./src/resources/modelService/dk/results/:/modelData/
+    depends_on:
+      - acquaount-platform
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  acquaount-datastreams-init:
+    build:
+      context: src/resources/databaseInitialisation/
+      dockerfile: Dockerfile
     depends_on:
       - acquaount-platform
     environment:
