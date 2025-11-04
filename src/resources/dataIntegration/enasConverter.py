@@ -28,7 +28,7 @@ if __name__ in "__main__":
     observations_url_2 = str(resp['Observations@iot.navigationLink']).replace(
         "http://localhost:8008", serverUrl)
 
-    measures_skip = 14600
+    measures_skip = 69200
     measures_num = 100
 
     total_measures = 0

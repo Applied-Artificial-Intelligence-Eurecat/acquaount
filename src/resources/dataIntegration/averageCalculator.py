@@ -1,5 +1,6 @@
 import datetime
 import json
+import math
 
 import requests as r
 import urllib3
@@ -68,10 +69,16 @@ def calculate_averages():
                 continue
             average_value = total_value / total_measures
 
-            packet = {
-                "result": average_value,
-                "phenomenonTime": today
-            }
+            if normal_datastream_name == "ENAS_1067_Water_Storage_m3":
+                packet = {
+                    "result": int(math.floor(average_value)),
+                    "phenomenonTime": today
+                }
+            else:
+                packet = {
+                    "result": average_value,
+                    "phenomenonTime": today
+                }
 
             average_observations_url = datastream['Observations@iot.navigationLink'].replace(
                 "http://localhost:8008", serverUrl)
@@ -275,7 +282,6 @@ def calculate_averages_historic_single_datastream(datastream_name):
                         has_measures = True
                         try:
                             try:
-                                print(measure)
                                 total_value += float(measure['result'])
                             except TypeError:
                                 total_value += 0
@@ -295,14 +301,12 @@ def calculate_averages_historic_single_datastream(datastream_name):
                 average_observations_url = datastream['Observations@iot.navigationLink'].replace(
                     "http://localhost:8008", serverUrl)
 
-                print(packet)
-
-                # req = r.post(average_observations_url, json=packet, verify=False)
+                req = r.post(average_observations_url, json=packet, verify=False)
                 print(req.status_code)
                 createds += 1
                 measureDate = measureDate + datetime.timedelta(days=7)
     return createds
 
 if __name__ in "__main__":
-    calculate_averages_historic_single_datastream('AVG_WEEKLY_ENAS_1067_Water_Storage_m3')
-    # calculate_averages_historic_single_datastream('AVG_WEEKLY_ENAS_10329_Water_Storage_m3')
+    # calculate_averages_historic_single_datastream('AVG_WEEKLY_ENAS_1067_Water_Storage_m3')
+    calculate_averages_historic_single_datastream('AVG_WEEKLY_ENAS_10329_Water_Storage_m3')

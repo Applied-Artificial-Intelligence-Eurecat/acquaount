@@ -370,7 +370,68 @@ async function fetchBasinInformation(itemName) {
         // Storage/Volume data
         let minStorage_observations = await fetchAllObservationsInDatastreamInRange(itemName, datastreamPrefix + "_MonthlyMinProjectedVolume", formatDate(now),"", 1000, 0);
         let maxStorage_observations = await fetchAllObservationsInDatastreamInRange(itemName, datastreamPrefix + "_MonthlyMaxProjectedVolume",  formatDate(now),"", 1000, 0);
-        let meanStorage_observations = await fetchAllObservationsInDatastreamInRange(itemName, datastreamPrefix + "_MonthlyMeanProjectedVolume", formatDate(now),"", 1000, 0);
+        let meanStorage_observations =await fetchAllObservationsInDatastreamInRange(itemName, datastreamPrefix + "_MonthlyMeanProjectedVolume", formatDate(now),"", 1000, 0);
+
+        // Fetch ENAS weekly storage data for September (lowest month)
+        // Note: The datastream AVG_WEEKLY_ENAS_10329_Water_Storage_m3 is inside the Cantoniera Reservoir item
+        console.log(`[DEBUG] Fetching ENAS datastream from itemName: ${itemName}`);
+        console.log(`[DEBUG] Looking for datastream: AVG_WEEKLY_ENAS_10329_Water_Storage_m3`);
+        
+        let enasWeeklyStorage_observations;
+        try {
+            enasWeeklyStorage_observations = await fetchAllObservationsInDatastreamInRange(itemName, "AVG_WEEKLY_ENAS_10329_Water_Storage_m3", formatDate(now),"", 1000, 0);
+            console.log(`[DEBUG] ENAS fetch result:`, enasWeeklyStorage_observations);
+        } catch (error) {
+            console.log(`[ERROR] Failed to fetch ENAS data:`, error.message);
+            enasWeeklyStorage_observations = undefined;
+        }
+        
+        // If no ENAS data for current period, try to get latest available data from past months
+        if (!enasWeeklyStorage_observations || enasWeeklyStorage_observations.length === 0) {
+            console.log(`[DEBUG] No ENAS data found for current period, trying to fetch latest available data...`);
+            
+            try {
+                // Try to get data from the last 6 months to find the most recent available data
+                let sixMonthsAgo = new Date();
+                sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+                
+                enasWeeklyStorage_observations = await fetchAllObservationsInDatastreamInRange(
+                    itemName, 
+                    "AVG_WEEKLY_ENAS_10329_Water_Storage_m3", 
+                    formatDate(sixMonthsAgo), 
+                    formatDate(now), 
+                    1000, 
+                    0
+                );
+                console.log(`[DEBUG] ENAS fetch result for last 6 months:`, enasWeeklyStorage_observations);
+            } catch (error) {
+                console.log(`[ERROR] Failed to fetch ENAS data for last 6 months:`, error.message);
+                enasWeeklyStorage_observations = undefined;
+            }
+            
+            // If still no data, try to get ANY available data from the last 2 years
+            if (!enasWeeklyStorage_observations || enasWeeklyStorage_observations.length === 0) {
+                console.log(`[DEBUG] Still no ENAS data found in last 6 months, trying to fetch ANY available data from last 2 years...`);
+                
+                try {
+                    let twoYearsAgo = new Date();
+                    twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+                    
+                    enasWeeklyStorage_observations = await fetchAllObservationsInDatastreamInRange(
+                        itemName, 
+                        "AVG_WEEKLY_ENAS_10329_Water_Storage_m3", 
+                        formatDate(twoYearsAgo), 
+                        formatDate(now), 
+                        1000, 
+                        0
+                    );
+                    console.log(`[DEBUG] ENAS fetch result for last 2 years:`, enasWeeklyStorage_observations);
+                } catch (error) {
+                    console.log(`[ERROR] Failed to fetch ENAS data for last 2 years:`, error.message);
+                    enasWeeklyStorage_observations = undefined;
+                }
+            }
+        }
 
         if(minInflow_observations === undefined || maxInflow_observations === undefined || meanInflow_observations === undefined || minOutflow_observations === undefined || maxOutflow_observations === undefined || meanOutflow_observations === undefined || minStorage_observations === undefined || maxStorage_observations === undefined || meanStorage_observations === undefined) {
             return {
@@ -425,12 +486,163 @@ async function fetchBasinInformation(itemName) {
         addToAggregatedData(maxOutflow_observations, "outflow", "M3/S", "forecast", "max");
         addToAggregatedData(meanOutflow_observations, "outflow", "M3/S", "forecast", "mean");
         
+        // Debug: Show what storage data is available
+        console.log(`[DEBUG] Min storage observations:`, minStorage_observations);
+        console.log(`[DEBUG] Max storage observations:`, maxStorage_observations);
+        console.log(`[DEBUG] Mean storage observations:`, meanStorage_observations);
+        
+        if (minStorage_observations && minStorage_observations.length > 0) {
+            console.log(`[DEBUG] Min storage data dates:`, minStorage_observations.map(obs => obs.time_of_measure));
+        }
+        if (maxStorage_observations && maxStorage_observations.length > 0) {
+            console.log(`[DEBUG] Max storage data dates:`, maxStorage_observations.map(obs => obs.time_of_measure));
+        }
+        if (meanStorage_observations && meanStorage_observations.length > 0) {
+            console.log(`[DEBUG] Mean storage data dates:`, meanStorage_observations.map(obs => obs.time_of_measure));
+        }
+        
         addToAggregatedData(minStorage_observations, "storage", "1000 M3", "forecast", "min");
         addToAggregatedData(maxStorage_observations, "storage", "1000 M3", "forecast", "max");
         addToAggregatedData(meanStorage_observations, "storage", "1000 M3", "forecast", "mean");
 
+        // Special handling for September storage data only: replace min, max, mean with latest ENAS sensor value
+        // Note: September might not appear in the endpoint response, but we update it if it exists
+        console.log(`[DEBUG] ENAS weekly storage observations:`, enasWeeklyStorage_observations);
+        console.log(`[DEBUG] ENAS data length:`, enasWeeklyStorage_observations ? enasWeeklyStorage_observations.length : 'undefined');
+        
+        // Variables for September update (declared outside if block for verification access)
+        let latestENASValue = null;
+        let latestENASDate = null;
+        let septemberYear = new Date().getFullYear();
+        
+        if (enasWeeklyStorage_observations && Array.isArray(enasWeeklyStorage_observations) && enasWeeklyStorage_observations.length > 0) {
+            // Find the most recent value from ENAS weekly storage data (latest available sensor reading)
+            // Sort by date to get the most recent observation
+            enasWeeklyStorage_observations.sort((a, b) => new Date(b.time_of_measure) - new Date(a.time_of_measure));
+            latestENASValue = enasWeeklyStorage_observations[0].value;
+            latestENASDate = enasWeeklyStorage_observations[0].time_of_measure;
+            
+            console.log(`[DEBUG] Latest ENAS sensor value:`, latestENASValue);
+            console.log(`[DEBUG] Latest ENAS sensor date:`, latestENASDate);
+            
+            // Update September storage data only (hardcoded to September)
+            // Determine the correct year - use the year from the first storage observation if available
+            if (minStorage_observations && minStorage_observations.length > 0) {
+                const firstStorageDate = new Date(minStorage_observations[0].time_of_measure);
+                septemberYear = firstStorageDate.getFullYear();
+                // If first storage is October or later, September should be the same year
+                if (firstStorageDate.getMonth() >= 9) { // Month 9 is October (0-indexed)
+                    septemberYear = firstStorageDate.getFullYear();
+                } else {
+                    // If first storage is before October, September is the previous year
+                    septemberYear = firstStorageDate.getFullYear();
+                }
+            }
+            
+            const septemberKey = `${septemberYear}-09-02T08:02:26.380Z`;
+            const septemberStorageKey = `${septemberKey}_storage`;
+            console.log(`[DEBUG] Looking for September key: ${septemberStorageKey} (year: ${septemberYear})`);
+            console.log(`[DEBUG] Available keys:`, Array.from(aggregatedData.keys()));
+            
+            let septemberData;
+            if (aggregatedData.has(septemberStorageKey)) {
+                septemberData = aggregatedData.get(septemberStorageKey);
+                
+                // Show September data BEFORE update
+                console.log(`[DEBUG] ========== SEPTEMBER DATA BEFORE UPDATE ==========`);
+                console.log(`[DEBUG] September datetime: ${septemberData.datetime}`);
+                console.log(`[DEBUG] September min (BEFORE): ${septemberData.min}`);
+                console.log(`[DEBUG] September max (BEFORE): ${septemberData.max}`);
+                console.log(`[DEBUG] September mean (BEFORE): ${septemberData.mean}`);
+                console.log(`[DEBUG] ====================================================`);
+                
+                // Store original values for comparison
+                const originalMin = septemberData.min;
+                const originalMax = septemberData.max;
+                const originalMean = septemberData.mean;
+                
+                // Update all three metrics (min, max, mean) to the same ENAS sensor value
+                septemberData.min = latestENASValue.toString();
+                septemberData.max = latestENASValue.toString();
+                septemberData.mean = latestENASValue.toString();
+                
+            } else {
+                // Create September if it doesn't exist (even though it won't be in response)
+                console.log(`[DEBUG] September storage key not found - CREATING September entry internally`);
+                septemberData = {
+                    "datetime": septemberKey,
+                    "measure": "storage",
+                    "unit": "1000 M3",
+                    "value_type": "forecast",
+                    "min": latestENASValue.toString(),
+                    "max": latestENASValue.toString(),
+                    "mean": latestENASValue.toString()
+                };
+                aggregatedData.set(septemberStorageKey, septemberData);
+                console.log(`[DEBUG] Created September entry internally (will not appear in response)`);
+            }
+            
+            // Show September data AFTER update/creation
+            console.log(`[DEBUG] ========== SEPTEMBER DATA (FINAL VALUES) ==========`);
+            console.log(`[DEBUG] September datetime: ${septemberData.datetime}`);
+            console.log(`[DEBUG] September min: ${septemberData.min}`);
+            console.log(`[DEBUG] September max: ${septemberData.max}`);
+            console.log(`[DEBUG] September mean: ${septemberData.mean}`);
+            console.log(`[DEBUG] All three values (min, max, mean) set to latest ENAS sensor value: ${latestENASValue}`);
+            console.log(`[DEBUG] ENAS sensor date: ${latestENASDate}`);
+            console.log(`[DEBUG] Values match check: min==max==mean = ${septemberData.min === septemberData.max && septemberData.max === septemberData.mean}`);
+            console.log(`[DEBUG] ====================================================`);
+            console.log(`[DEBUG] Complete September data object:`, JSON.stringify(septemberData, null, 2));
+        } else {
+            console.log(`[DEBUG] ENAS weekly storage data is not available or empty - September will use original forecast data`);
+        }
+
+        // Debug: Confirm other months remain unchanged (not September)
+        console.log(`[DEBUG] ========== VERIFICATION: OTHER MONTHS UNCHANGED ==========`);
+        const allStorageKeys = Array.from(aggregatedData.keys()).filter(key => key.endsWith('_storage'));
+        const nonSeptemberKeys = allStorageKeys.filter(key => !key.includes('09-02T08:02:26.380Z'));
+        console.log(`[DEBUG] Total storage months: ${allStorageKeys.length}`);
+        console.log(`[DEBUG] Non-September months (should remain unchanged): ${nonSeptemberKeys.length}`);
+        
+        // Specifically check October to ensure it wasn't accidentally modified
+        if (latestENASValue !== null) {
+            const octoberKey = `${septemberYear}-10-02T08:02:26.380Z_storage`;
+            if (aggregatedData.has(octoberKey)) {
+                const octoberData = aggregatedData.get(octoberKey);
+                const enasValueStr = latestENASValue.toString();
+                const isOctoberModified = (octoberData.min === enasValueStr && octoberData.max === enasValueStr && octoberData.mean === enasValueStr);
+                console.log(`[DEBUG] October verification:`);
+                console.log(`[DEBUG]   October min: ${octoberData.min}`);
+                console.log(`[DEBUG]   October max: ${octoberData.max}`);
+                console.log(`[DEBUG]   October mean: ${octoberData.mean}`);
+                console.log(`[DEBUG]   ENAS value: ${enasValueStr}`);
+                console.log(`[DEBUG]   October modified (should be false): ${isOctoberModified}`);
+                if (isOctoberModified) {
+                    console.log(`[ERROR] WARNING: October appears to have been modified! This should not happen.`);
+                } else {
+                    console.log(`[DEBUG]   ✓ October correctly preserved with original forecast values`);
+                }
+            }
+        }
+        
+        if (nonSeptemberKeys.length > 0) {
+            console.log(`[DEBUG] Sample of other months (first 3):`);
+            nonSeptemberKeys.slice(0, 3).forEach(key => {
+                const monthData = aggregatedData.get(key);
+                console.log(`[DEBUG]   ${key}: min=${monthData.min}, max=${monthData.max}, mean=${monthData.mean} (original forecast values preserved)`);
+            });
+        }
+        console.log(`[DEBUG] ====================================================`);
+        
+        // Debug: Show what months are available in aggregated data
+        console.log(`[DEBUG] All available keys in aggregated data:`, Array.from(aggregatedData.keys()));
+        console.log(`[DEBUG] Number of data points:`, aggregatedData.size);
+        
         // Convert Map values to array
         basin_data = Array.from(aggregatedData.values());
+        
+        // Debug: Show what data we have before organization
+        console.log(`[DEBUG] Basin data before organization:`, basin_data);
         
         // Reorganize data: group by measurement type, then by datetime
         const organizedData = [];
@@ -439,6 +651,7 @@ async function fetchBasinInformation(itemName) {
         measurementTypes.forEach(measureType => {
             // Get all data for this measurement type
             const measureData = basin_data.filter(item => item.measure === measureType);
+            console.log(`[DEBUG] ${measureType} data:`, measureData);
             
             // Sort by datetime (oldest to newest)
             measureData.sort((a, b) => new Date(a.datetime) - new Date(b.datetime));
@@ -446,6 +659,9 @@ async function fetchBasinInformation(itemName) {
             // Add to organized data
             organizedData.push(...measureData);
         });
+        
+        console.log(`[DEBUG] Final organized data:`, organizedData);
+        console.log(`[DEBUG] Total data points in response:`, organizedData.length);
         
         return {
             "data": organizedData
@@ -489,7 +705,8 @@ async function fetchHistoricalData(itemName) {
             {
                 path: 'src/resources/historicalData/historic_measures_volume.xlsx',
                 type: 'volume',
-                sheets: ['max_min_average'] // Only process max_min_average sheet for volume
+                // sheets: ['max_min_average'] // Only process max_min_average sheet for volume
+                sheetIndex: 1 // Use second sheet (index 1) for volume file
             },
             {
                 path: 'src/resources/historicalData/historic_measures_outflow.xlsx',
@@ -518,12 +735,29 @@ async function fetchHistoricalData(itemName) {
 
                 const workbook = XLSX.readFile(fileConfig.path);
                 
-                // Process the single configured sheet for this file
-                const sheetName = fileConfig.sheets[0]; // Only one sheet per file now
-                if (!workbook.SheetNames.includes(sheetName)) {
+                // Process the configured sheet for this file
+                let sheetName;
+                if (fileConfig.sheetIndex !== undefined) {
+                    // Use sheet index (for volume - second sheet)
+                    if (fileConfig.sheetIndex >= workbook.SheetNames.length) {
+                        console.log(`[DEBUG] Sheet index ${fileConfig.sheetIndex} not available. Available sheets:`, workbook.SheetNames);
+                        continue;
+                    }
+                    sheetName = workbook.SheetNames[fileConfig.sheetIndex];
+                    console.log(`[DEBUG] Using sheet index ${fileConfig.sheetIndex} (${sheetName}) for ${fileConfig.type}`);
+                } else if (fileConfig.sheets && fileConfig.sheets.length > 0) {
+                    // Use sheet name (for outflow/inflow)
+                    sheetName = fileConfig.sheets[0];
+                    if (!workbook.SheetNames.includes(sheetName)) {
+                        console.log(`[DEBUG] Sheet ${sheetName} not found. Available sheets:`, workbook.SheetNames);
+                        continue;
+                    }
+                } else {
+                    console.log(`[DEBUG] No sheet configuration found for ${fileConfig.type}`);
                     continue;
                 }
                 
+                console.log(`[DEBUG] Processing sheet "${sheetName}" from ${fileConfig.path}`);
                 const sheet = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
                 
                 // Check if this sheet has the expected month column format (either 'month-year' or 'Month')
@@ -667,15 +901,61 @@ async function fetchHistoricalData(itemName) {
 
                         const monthRecord = monthlyData.get(monthDataKey);
                         
-                        // Add values if they exist and are not NaN
-                        if (maxValue !== undefined && maxValue !== null && maxValue !== '' && !isNaN(maxValue)) {
-                            monthRecord.values.push({ type: 'max', value: parseFloat(maxValue) });
+                        // Helper function to validate and parse values - filters out 0, empty cells, and NaN
+                        const isValidValue = (value, valueType, monthYear) => {
+                            // Check for undefined, null, or empty string
+                            if (value === undefined || value === null || value === '') {
+                                console.log(`[DEBUG] Skipping ${valueType} value for ${monthYear}: empty cell (${value})`);
+                                return null;
+                            }
+                            
+                            // Check if it's already NaN before parsing
+                            if (typeof value === 'number' && isNaN(value)) {
+                                console.log(`[DEBUG] Skipping ${valueType} value for ${monthYear}: NaN`);
+                                return null;
+                            }
+                            
+                            // Parse the value
+                            const parsedValue = parseFloat(value);
+                            
+                            // Check if parsing resulted in NaN
+                            if (isNaN(parsedValue)) {
+                                console.log(`[DEBUG] Skipping ${valueType} value for ${monthYear}: parsed as NaN (${value})`);
+                                return null;
+                            }
+                            
+                            // Check if value is exactly 0 (likely empty cell artifact)
+                            if (parsedValue === 0) {
+                                console.log(`[DEBUG] Skipping ${valueType} value for ${monthYear}: exactly 0 (likely empty cell)`);
+                                return null;
+                            }
+                            
+                            // Also check for Infinity values (shouldn't happen but good to filter)
+                            if (!isFinite(parsedValue)) {
+                                console.log(`[DEBUG] Skipping ${valueType} value for ${monthYear}: Infinity (${value})`);
+                                return null;
+                            }
+                            
+                            // Valid value
+                            return parsedValue;
+                        };
+                        
+                        // Process max value
+                        const validMax = isValidValue(maxValue, 'max', monthYear);
+                        if (validMax !== null) {
+                            monthRecord.values.push({ type: 'max', value: validMax });
                         }
-                        if (minValue !== undefined && minValue !== null && minValue !== '' && !isNaN(minValue)) {
-                            monthRecord.values.push({ type: 'min', value: parseFloat(minValue) });
+                        
+                        // Process min value
+                        const validMin = isValidValue(minValue, 'min', monthYear);
+                        if (validMin !== null) {
+                            monthRecord.values.push({ type: 'min', value: validMin });
                         }
-                        if (avgValue !== undefined && avgValue !== null && avgValue !== '' && !isNaN(avgValue)) {
-                            monthRecord.values.push({ type: 'avg', value: parseFloat(avgValue) });
+                        
+                        // Process avg value
+                        const validAvg = isValidValue(avgValue, 'avg', monthYear);
+                        if (validAvg !== null) {
+                            monthRecord.values.push({ type: 'avg', value: validAvg });
                         }
 
                     });
@@ -698,10 +978,20 @@ async function fetchHistoricalData(itemName) {
             const minValues = monthRecord.values.filter(v => v.type === 'min').map(v => v.value);
             const avgValues = monthRecord.values.filter(v => v.type === 'avg').map(v => v.value);
             
+            // Debug: Show what values are being used for calculation
+            console.log(`[DEBUG] Month: ${monthRecord.month}, Measure: ${monthRecord.measure}`);
+            console.log(`[DEBUG]   Max values count: ${maxValues.length}, Values: [${maxValues.slice(0, 5).join(', ')}${maxValues.length > 5 ? '...' : ''}]`);
+            console.log(`[DEBUG]   Min values count: ${minValues.length}, Values: [${minValues.slice(0, 5).join(', ')}${minValues.length > 5 ? '...' : ''}]`);
+            console.log(`[DEBUG]   Avg values count: ${avgValues.length}, Values: [${avgValues.slice(0, 5).join(', ')}${avgValues.length > 5 ? '...' : ''}]`);
+            
             // Calculate overall statistics
             const absMax = maxValues.length > 0 ? Math.max(...maxValues) : null;
             const absMin = minValues.length > 0 ? Math.min(...minValues) : null;
             const overallMean = avgValues.length > 0 ? avgValues.reduce((sum, val) => sum + val, 0) / avgValues.length : null;
+            
+            console.log(`[DEBUG]   Calculated abs_min: ${absMin} (minimum of all min values)`);
+            console.log(`[DEBUG]   Calculated abs_max: ${absMax} (maximum of all max values)`);
+            console.log(`[DEBUG]   Calculated mean: ${overallMean}`);
             
             // OPTION 2: Average approach - Average of all min/max values
             const avgOfMaxValues = maxValues.length > 0 ? maxValues.reduce((sum, val) => sum + val, 0) / maxValues.length : null;
@@ -1034,10 +1324,18 @@ async function fetchDatastreamInAField(fieldName, datastreamName) {
 async function fetchDatastream(fieldName, datastreamName) {
     
     let datastreamsLink = await fetchFromDatabase(baseurl + "/Things?$filter=name eq '" + fieldName + "'").then((data) => {
+        if (!data) {
+            console.log(`[ERROR] No data returned for fieldName: ${fieldName}`);
+            return undefined;
+        }
         if(data["@iot.count"] === 0) {
+            console.log(`[ERROR] No things found for fieldName: ${fieldName}`);
             return undefined;
         }
         return data["value"][0]["Datastreams@iot.navigationLink"];
+    }).catch((error) => {
+        console.log(`[ERROR] Failed to fetch datastream for fieldName: ${fieldName}, error:`, error.message);
+        return undefined;
     });
     if(datastreamsLink === undefined) {
         return undefined;
