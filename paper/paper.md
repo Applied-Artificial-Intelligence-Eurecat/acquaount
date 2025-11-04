@@ -44,7 +44,7 @@ The Web-Of-Things (WoT) standard is a tool that provides a set of standardized t
 
 All the metadata of a device and all its interaction affordances are documented in a Thing Description (TD), and something described by a TD is considered a Thing. This file is in JSON-LD format and includes all the data required to use the defined Thing except the network protocol, so that the same TD can be reused over different protocols such as HTTP, MQTT, or others. The protocol is provided using the WoT Binding Template. [@kaebisch2024]  
 
-![Diagram representing how WoT simplifies the interaction between apps and devices.\label{fig1}](diagramawot.png){ width=95% }  
+![Diagram representing how WoT simplifies the interaction between apps and devices.\label{fig1}](diagramawot.png){ width=65% }  
 
 Taking a look at \autoref{fig1}, it is seen how providing a uniform interface for objects facilitates the tasks of the IoT applications, simplifying the connections and creating easily maintainable and expandable applications.   
 Combining the information given through the TD and the Binding Template, a Thing can be successfully accessed and used. The TD provides all possible endpoints for the interaction affordances and defines the required parameters and body of the message, and the Binding Template defines the protocol.  
@@ -83,6 +83,7 @@ Some types of items also have the following properties:
  + sensorInformation: Provides detailed information about one of the sensors.  
 
 All types of things have available at least this action affordance, used to upload data to the platform.  
+
  + receiveMeasure: Used as an endpoint for the sensors to upload data to the platform.
 
 Finally, all types of Things have the same event affordance, which can be subscribed to, in order to perform an action every time it triggers.  
